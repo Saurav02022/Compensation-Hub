@@ -18,3 +18,29 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "compensation_hub"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests", "alembic"]
+plugins = ["pydantic.mypy"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]
