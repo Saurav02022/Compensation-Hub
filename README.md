@@ -129,6 +129,8 @@ uv run uvicorn compensation_hub.main:app --reload
 
 `.env.example` documents every backend environment variable. The API reads `DATABASE_URL` at startup.
 
+Ask Compensation uses the Gemini API through the official `google-genai` SDK. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in `.env` to enable it. Without a key the API answers `POST /analytics/ask` with `503` and a clear message, and every other feature keeps working.
+
 The seed command loads the deterministic dataset of 10,000 employees, their current compensation, and the exchange rates. It refuses to run against a database that already contains employees; pass `--reset` to truncate the MVP tables and load the same dataset again.
 
 The API is available at `http://localhost:8000`.
@@ -150,6 +152,12 @@ uv run mypy
 ```
 
 PostgreSQL integration tests run only when `TEST_DATABASE_URL` is set, either in `.env` or in the environment. Without it they are skipped and only the pure unit tests run. The test database is migrated from scratch and its tables are truncated between tests, so it must never point at the development database.
+
+Routine tests never call the LLM provider; the Ask Compensation tests use a mocked planner. A small live evaluation of representative questions runs only on request and needs `GEMINI_API_KEY`:
+
+```bash
+uv run pytest -m live
+```
 
 ### Frontend
 

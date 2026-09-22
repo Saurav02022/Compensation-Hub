@@ -121,7 +121,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 ## Phase 4 — Ask Compensation
 
 - [x] Define the constrained analytics query-plan schema.
-- [ ] Add the LLM provider behind a small backend interface.
+- [x] Add the LLM provider behind a small backend interface.
 - [ ] Convert supported natural-language questions into structured query plans.
 - [x] Validate every generated plan before execution.
 - [x] Execute valid plans through the existing analytics capability.
@@ -130,7 +130,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [x] Handle LLM-provider failure without affecting core workflows.
 - [x] Build the Ask Compensation frontend experience.
 - [x] Add deterministic tests with the LLM boundary mocked.
-- [ ] Add a small optional live-model evaluation set.
+- [x] Add a small optional live-model evaluation set.
 - [ ] Record meaningful AI-assisted engineering work in `ai-usage.md`.
 
 **Exit condition:** supported natural-language questions use the same trusted analytics logic as the rest of the product, while core workflows remain independent of the LLM provider.

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import PostgresDsn
+from pydantic import PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: PostgresDsn
+
+    # Ask Compensation is optional: without a Gemini API key the feature reports itself
+    # unavailable while every other workflow keeps working.
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_timeout_seconds: float = 20.0
 
 
 @lru_cache

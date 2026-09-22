@@ -201,3 +201,18 @@ Deterministic data makes development, testing, debugging, analytics verification
 **Trade-off**
 
 The seeded dataset is designed to exercise product behavior and should not be treated as representative of a real organization's workforce.
+---
+
+## D012 — Use Google Gemini as the Ask Compensation language model
+
+Ask Compensation calls the Gemini API through the official `google-genai` Python SDK, behind the backend's small planner interface.
+
+The model is configured through `GEMINI_MODEL` (default `gemini-3.8-flash`) and the key through `GEMINI_API_KEY`. When no key is configured the feature reports itself unavailable.
+
+**Why**
+
+The product owner has a Gemini API key available, and the SDK supports JSON-schema-constrained responses, which fits the constrained query-plan contract in D009. Keeping the adapter behind the planner interface means the rest of Ask Compensation, and all of its automated tests, remain provider-independent.
+
+**Trade-off**
+
+Live-model behavior is verified only by the optional evaluation set, not by routine tests. Switching providers later requires a new adapter and a fresh run of that evaluation.

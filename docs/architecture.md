@@ -292,7 +292,7 @@ The LLM:
 
 If a question cannot be represented by the supported analytics model, the request is rejected as unsupported rather than approximated.
 
-The LLM provider is kept behind a small application interface so provider-specific code does not leak into product logic.
+The LLM provider is kept behind a small application interface so provider-specific code does not leak into product logic. The current adapter targets the Gemini API (see D012); the interface receives the question and the supported dimension values, returns the model's raw JSON text, and nothing else.
 
 ---
 
