@@ -196,17 +196,17 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 Requested by the product owner after the end-to-end delivery: make the implemented product feel like one coherent, polished application without changing its architecture or scope.
 
-- [ ] Establish the visual foundations: tokens, typography, spacing, and the reusable UI primitives the product needs.
-- [ ] Build the application shell with a sticky header, product identity, and primary navigation with a clear active state.
-- [ ] Make Ask Compensation a global assistant available from every primary page, and retire the separate page.
-- [ ] Verify the employee directory relies only on server-side pagination, search, and filtering.
-- [ ] Refine directory search, filters, pagination, and URL-addressable state.
-- [ ] Refine the employee detail and compensation editing workflow.
-- [ ] Redesign analytics as a workspace with KPI summary, shared filters, focused charts, and exact values.
-- [ ] Turn the landing page into an overview that orients the HR Manager.
-- [ ] Make loading, empty, error, and success states intentional on every primary surface.
-- [ ] Complete a responsive and accessibility pass.
-- [ ] Align visual consistency across pages.
+- [x] Establish the visual foundations: tokens, typography, spacing, and the reusable UI primitives the product needs.
+- [x] Build the application shell with a sticky header, product identity, and primary navigation with a clear active state.
+- [x] Make Ask Compensation a global assistant available from every primary page, and retire the separate page.
+- [x] Verify the employee directory relies only on server-side pagination, search, and filtering.
+- [x] Refine directory search, filters, pagination, and URL-addressable state.
+- [x] Refine the employee detail and compensation editing workflow.
+- [x] Redesign analytics as a workspace with KPI summary, shared filters, focused charts, and exact values.
+- [x] Turn the landing page into an overview that orients the HR Manager.
+- [x] Make loading, empty, error, and success states intentional on every primary surface.
+- [x] Complete a responsive and accessibility pass.
+- [x] Align visual consistency across pages.
 - [ ] Update tests and run the full frontend and backend verification.
 
 **Exit condition:** the application uses one visual language, the header is sticky with clear navigation, Ask Compensation is reachable everywhere, directory and analytics remain server-backed, and lint, type, test, and build checks pass.

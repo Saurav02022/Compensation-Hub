@@ -315,6 +315,40 @@ How it was verified: 111 backend tests, ruff, and mypy; 32 frontend tests,
   the redeployed backend answers health, analytics, and a live Ask question.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 8 — product design and UX refinement
+How AI was used: Audited the implemented UI against the product workflows, set a
+  restrained visual system (neutral canvas, one accent hue, shared radius and
+  control height, a handful of primitives), and reworked the shell, directory,
+  employee detail, analytics, overview, and Ask Compensation surfaces without
+  changing the API, business rules, or architecture.
+What was accepted: A sticky header with an active section marker; Ask
+  Compensation as a global right-side drawer with focus trapping, Escape,
+  suggested questions limited to supported capabilities, and a log that
+  survives navigation, replacing the separate page; a directory toolbar that
+  debounces search by 300 ms, applies filters immediately, resets to page one,
+  and keeps all state in the URL through router transitions so the visible
+  table never flashes; a range summary and filtered-empty state; an edit-on-
+  request compensation panel; analytics led by KPI tiles, shared filters, and
+  three horizontal bar charts sized from the breakdown endpoint with exact
+  values behind disclosures and bar labels that filter the page; an overview
+  built from the summary and two top-five breakdowns.
+What was changed or rejected: No chart library was added; the three single-
+  series bar charts are plain HTML lists, which keeps values as text, works
+  without JavaScript, and avoids a dependency. Raw query plans are not shown;
+  the drawer gives a one-line plain-language reading instead. The header
+  overflowed at phone widths in review and now wraps its navigation.
+How it was verified: 48 frontend tests, eslint, tsc, and next build; 112
+  backend tests including a new search-plus-filter-plus-pagination case; a
+  browser walkthrough against the seeded API confirmed the sticky header,
+  active navigation, one API request for a fast-typed search, filters and
+  pagination combining in the URL, salary edit, backend error, and revert,
+  chart-to-filter links, the drawer answering a live question and closing on
+  Escape, and no horizontal overflow at 375 px.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.
