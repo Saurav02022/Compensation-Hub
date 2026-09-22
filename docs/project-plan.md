@@ -67,13 +67,13 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ### Backend
 
-- [ ] Implement paginated employee listing.
-- [ ] Implement search by employee name and employee code.
-- [ ] Implement filters for country, department, and job title.
-- [ ] Implement employee detail retrieval.
-- [ ] Implement current-compensation updates.
-- [ ] Validate salary amounts and supported currencies.
-- [ ] Add automated tests for employee and compensation behavior.
+- [x] Implement paginated employee listing.
+- [x] Implement search by employee name and employee code.
+- [x] Implement filters for country, department, and job title.
+- [x] Implement employee detail retrieval.
+- [x] Implement current-compensation updates.
+- [x] Validate salary amounts and supported currencies.
+- [x] Add automated tests for employee and compensation behavior.
 
 ### Frontend
 
