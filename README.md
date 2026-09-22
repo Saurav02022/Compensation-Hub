@@ -180,6 +180,10 @@ npm run test
 npm run build
 ```
 
+### Continuous integration
+
+GitHub Actions runs the backend checks against a PostgreSQL service and the frontend checks on every push to `main` and every pull request (`.github/workflows/ci.yml`). CI has no LLM credentials; the Ask Compensation tests use a mocked planner and the live evaluation is excluded.
+
 Full-stack runtime commands are added as their implementation phases are completed.
 
 ## Project Documentation
