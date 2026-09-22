@@ -98,6 +98,59 @@ Compensation-Hub/
 
 ## Local Development
 
+### Prerequisites
+
+- Node.js and npm
+- Python 3.12 and [uv](https://docs.astral.sh/uv/)
+- PostgreSQL 16, either through Docker Compose (below) or an existing local server
+
+### PostgreSQL
+
+The repository includes a Docker Compose service for local PostgreSQL:
+
+```bash
+docker compose up -d postgres
+```
+
+It creates the `compensation_hub` development database and a separate `compensation_hub_test` database for the automated test suite, both owned by the `compensation_hub` role with password `compensation_hub`.
+
+If you use your own PostgreSQL server instead, create the two databases yourself and point `DATABASE_URL` and `TEST_DATABASE_URL` at them.
+
+### Backend
+
+```bash
+cd backend
+cp .env.example .env
+uv sync
+uv run alembic upgrade head
+uv run python -m compensation_hub.seed
+uv run uvicorn compensation_hub.main:app --reload
+```
+
+`.env.example` documents every backend environment variable. The API reads `DATABASE_URL` at startup.
+
+The seed command loads the deterministic dataset of 10,000 employees, their current compensation, and the exchange rates. It refuses to run against a database that already contains employees; pass `--reset` to truncate the MVP tables and load the same dataset again.
+
+The API is available at `http://localhost:8000`.
+
+The health endpoint is:
+
+```text
+GET /health
+```
+
+### Backend checks
+
+```bash
+cd backend
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+```
+
+PostgreSQL integration tests run only when `TEST_DATABASE_URL` is set, either in `.env` or in the environment. Without it they are skipped and only the pure unit tests run. The test database is migrated from scratch and its tables are truncated between tests, so it must never point at the development database.
+
 ### Frontend
 
 ```bash
@@ -108,23 +161,7 @@ npm run dev
 
 The frontend is available at `http://localhost:3000`.
 
-### Backend
-
-```bash
-cd backend
-uv sync
-uv run uvicorn compensation_hub.main:app --reload
-```
-
-The API is available at `http://localhost:8000`.
-
-The health endpoint is:
-
-```text
-GET /health
-```
-
-Database setup, migrations, seed data, and full-stack runtime commands are added as their implementation phases are completed.
+Full-stack runtime commands are added as their implementation phases are completed.
 
 ## Project Documentation
 

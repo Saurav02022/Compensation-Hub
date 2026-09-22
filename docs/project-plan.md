@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 1 — Database Foundation and Seed Data
+**Current phase:** Phase 2 — Employee Directory and Compensation Management
 
 ## Status
 
@@ -37,29 +37,29 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ### Configuration and PostgreSQL
 
-- [ ] Add backend settings for database and runtime configuration.
-- [ ] Add tracked `.env.example` files without real credentials.
-- [ ] Add PostgreSQL for local development.
-- [ ] Configure SQLAlchemy sessions and database connectivity.
-- [ ] Configure Alembic migrations.
+- [x] Add backend settings for database and runtime configuration.
+- [x] Add tracked `.env.example` files without real credentials.
+- [x] Add PostgreSQL for local development.
+- [x] Configure SQLAlchemy sessions and database connectivity.
+- [x] Configure Alembic migrations.
 
 ### Data Model
 
-- [ ] Implement `Employee`.
-- [ ] Implement `Compensation`.
-- [ ] Implement `FxRate`.
-- [ ] Enforce required relational and monetary constraints.
-- [ ] Create and verify the initial migration.
+- [x] Implement `Employee`.
+- [x] Implement `Compensation`.
+- [x] Implement `FxRate`.
+- [x] Enforce required relational and monetary constraints.
+- [x] Create and verify the initial migration.
 
 ### Seed Data
 
-- [ ] Implement deterministic generation of 10,000 employees.
-- [ ] Seed current compensation in appropriate local currencies.
-- [ ] Seed deterministic currency-to-USD exchange rates.
-- [ ] Make the seed process safe to run in a clean development environment.
-- [ ] Add tests for important data constraints and seed reproducibility.
+- [x] Implement deterministic generation of 10,000 employees.
+- [x] Seed current compensation in appropriate local currencies.
+- [x] Seed deterministic currency-to-USD exchange rates.
+- [x] Make the seed process safe to run in a clean development environment.
+- [x] Add tests for important data constraints and seed reproducibility.
 
-**Exit condition:** a clean PostgreSQL database can be migrated and deterministically populated with the complete 10,000-employee MVP dataset.
+**Exit condition:** complete — a clean PostgreSQL database can be migrated with `alembic upgrade head` and deterministically populated with the complete 10,000-employee MVP dataset through the seed command.
 
 ---
 
