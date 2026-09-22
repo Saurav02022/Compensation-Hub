@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Identity, String
+from sqlalchemy import Identity, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from compensation_hub.db.base import Base
@@ -13,6 +13,14 @@ if TYPE_CHECKING:
 
 class Employee(Base):
     __tablename__ = "employees"
+    __table_args__ = (
+        # Directory pages are ordered by name and paginated; walking this index avoids
+        # sorting the whole table for every page.
+        Index("ix_employees_full_name_employee_code", "full_name", "employee_code"),
+        Index("ix_employees_country", "country"),
+        Index("ix_employees_department", "department"),
+        Index("ix_employees_job_title", "job_title"),
+    )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
     employee_code: Mapped[str] = mapped_column(String(20), unique=True)
