@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 6 — Local Runtime and Deployment
+**Current phase:** Phase 7 — Final Product Review and Delivery
 
 ## Status
 
@@ -167,12 +167,12 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [x] Provision PostgreSQL.
 - [x] Deploy the backend.
 - [x] Deploy the frontend.
-- [ ] Configure production environment variables and secrets (`DATABASE_URL` is in Secret Manager and mounted; `GEMINI_API_KEY` still has to be created in Secret Manager by the product owner and mounted into the backend service).
+- [x] Configure production environment variables and secrets.
 - [x] Run database migrations and seed the deployed dataset.
 - [x] Smoke-test the deployed product.
 - [x] Verify an LLM-provider outage does not break core compensation workflows.
 
-**Exit condition:** Compensation Hub is accessible through a deployed environment and remains reproducible locally from documented setup steps.
+**Exit condition:** complete — Compensation Hub runs on Cloud Run in Mumbai against a Supabase database in Mumbai, with `DATABASE_URL` and `GEMINI_API_KEY` mounted from Secret Manager, and remains reproducible locally from the documented setup steps.
 
 ---
 
