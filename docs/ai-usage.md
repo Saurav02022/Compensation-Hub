@@ -240,6 +240,30 @@ How it was verified: 107 backend tests with the planner mocked, ruff, and mypy
   and a grouped answer matched the overview page figures.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 5 — quality checks and continuous integration
+How AI was used: Wrote the GitHub Actions workflow, reviewed error handling,
+  logging, and secret handling, added a controlled database-outage response,
+  and ran the full quality suite from fresh clones and in CI.
+What was accepted: Backend and frontend jobs with a PostgreSQL 16 service and
+  no LLM credential; LOG_LEVEL-driven logging configured at startup; a 503
+  without connection details when the database is unreachable while /health
+  stays a liveness check; explicit byte-order collation on the employee text
+  columns after CI on Linux sorted "Accountant" before "Account Executive"
+  while Windows and Python sorted them the other way.
+What was changed or rejected: The setup-uv action's README suggested a major
+  tag that is not published, so the workflow pins a release tag; a test that
+  tried to check query validation through a failing session factory was
+  removed because FastAPI resolves the session dependency first; a fresh clone
+  under the long scratchpad path hit the Windows path limit inside mypy and was
+  repeated from a short path.
+How it was verified: 109 backend tests, ruff, and mypy; 32 frontend tests,
+  eslint, tsc, and next build; both suites from a fresh clone; CI green on
+  GitHub Actions for both jobs.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

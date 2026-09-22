@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 5 — Quality and Continuous Integration
+**Current phase:** Phase 6 — Local Runtime and Deployment
 
 ## Status
 
@@ -139,16 +139,16 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ## Phase 5 — Quality and Continuous Integration
 
-- [ ] Finalize backend linting, formatting, typing, and test commands.
-- [ ] Finalize frontend linting, type-checking, testing, and build commands.
-- [ ] Add GitHub Actions for automated quality checks.
-- [ ] Ensure CI does not require a live LLM call.
-- [ ] Review API validation and error handling.
-- [ ] Review application logging and health checks.
-- [ ] Review environment-variable handling and secret hygiene.
-- [ ] Run the complete quality suite from a clean checkout.
+- [x] Finalize backend linting, formatting, typing, and test commands.
+- [x] Finalize frontend linting, type-checking, testing, and build commands.
+- [x] Add GitHub Actions for automated quality checks.
+- [x] Ensure CI does not require a live LLM call.
+- [x] Review API validation and error handling.
+- [x] Review application logging and health checks.
+- [x] Review environment-variable handling and secret hygiene.
+- [x] Run the complete quality suite from a clean checkout.
 
-**Exit condition:** a clean checkout passes the configured automated quality checks without relying on local machine state or live AI services.
+**Exit condition:** complete — GitHub Actions runs ruff, mypy, pytest against PostgreSQL, eslint, tsc, vitest, and the production build on every push and pull request without any LLM credential, and the same commands pass from a fresh clone.
 
 ---
 
