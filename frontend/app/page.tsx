@@ -1,8 +1,5 @@
+import { redirect } from "next/navigation";
+
 export default function Home() {
-  return (
-    <main>
-      <h1>Compensation Hub</h1>
-      <p>Frontend is running.</p>
-    </main>
-  );
+  redirect("/employees");
 }
