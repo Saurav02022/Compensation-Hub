@@ -180,6 +180,18 @@ npm run test
 npm run build
 ```
 
+### Container stack
+
+`compose.yaml` also defines `backend` and `frontend` services built from the two Dockerfiles, so the whole product can run in containers:
+
+```bash
+docker compose up --build -d
+docker compose run --rm backend alembic upgrade head
+docker compose run --rm backend python -m compensation_hub.seed
+```
+
+The frontend is then at `http://localhost:3000` and the API at `http://localhost:8000`. Set `GEMINI_API_KEY` in a root `.env` file next to `compose.yaml` to enable Ask Compensation in the container stack; it is optional.
+
 ### Continuous integration
 
 GitHub Actions runs the backend checks against a PostgreSQL service and the frontend checks on every push to `main` and every pull request (`.github/workflows/ci.yml`). CI has no LLM credentials; the Ask Compensation tests use a mocked planner and the live evaluation is excluded.

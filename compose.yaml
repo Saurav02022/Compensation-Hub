@@ -16,5 +16,28 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://compensation_hub:compensation_hub@postgres:5432/compensation_hub
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Optional; leave unset to run without Ask Compensation.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+coverage/
+*.test.ts
+*.test.tsx
+vitest.config.mts
+vitest.setup.ts
