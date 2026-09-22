@@ -207,7 +207,7 @@ Requested by the product owner after the end-to-end delivery: make the implement
 - [x] Make loading, empty, error, and success states intentional on every primary surface.
 - [x] Complete a responsive and accessibility pass.
 - [x] Align visual consistency across pages.
-- [ ] Update tests and run the full frontend and backend verification.
+- [x] Update tests and run the full frontend and backend verification.
 
-**Exit condition:** the application uses one visual language, the header is sticky with clear navigation, Ask Compensation is reachable everywhere, directory and analytics remain server-backed, and lint, type, test, and build checks pass.
+**Exit condition:** complete — the application uses one visual language, the header is sticky with clear navigation, Ask Compensation is reachable everywhere, directory and analytics remain server-backed, and lint, type, test, and build checks pass.
 
