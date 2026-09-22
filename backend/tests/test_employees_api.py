@@ -117,6 +117,38 @@ def test_job_title_filter(seeded_client: TestClient) -> None:
     assert {i["employee_code"] for i in body["items"]} == expected
 
 
+def test_search_filters_and_pagination_combine_without_loading_everything(
+    seeded_client: TestClient,
+) -> None:
+    sample = DATASET.employees[0]
+    fragment = sample.full_name.split()[0].lower()
+    matching = sorted(
+        (e.full_name, e.employee_code)
+        for e in DATASET.employees
+        if fragment in e.full_name.lower() and e.country == sample.country
+    )
+
+    first = seeded_client.get(
+        "/employees",
+        params={"search": fragment, "country": sample.country, "page_size": 1, "page": 1},
+    ).json()
+    last = seeded_client.get(
+        "/employees",
+        params={
+            "search": fragment,
+            "country": sample.country,
+            "page_size": 1,
+            "page": len(matching),
+        },
+    ).json()
+
+    assert first["total_items"] == len(matching)
+    assert first["total_pages"] == len(matching)
+    assert len(first["items"]) == 1
+    assert (first["items"][0]["full_name"], first["items"][0]["employee_code"]) == matching[0]
+    assert (last["items"][0]["full_name"], last["items"][0]["employee_code"]) == matching[-1]
+
+
 def test_unknown_filter_value_returns_empty_page(seeded_client: TestClient) -> None:
     body = seeded_client.get("/employees", params={"country": "Atlantis"}).json()
 
