@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { fetchBreakdown, fetchSummary, filtersFromSearchParams } from "./analytics";
+import { analyticsHref, fetchBreakdown, fetchSummary, filtersFromSearchParams } from "./analytics";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -59,6 +59,26 @@ describe("fetchBreakdown", () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe(
       "http://localhost:8000/analytics/breakdown?country=India&group_by=department&sort_by=total_payroll_usd&descending=true",
+    );
+  });
+
+  it("supports another sort key and a bounded limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ rows: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchBreakdown("job_title", {}, { sortBy: "employee_count", limit: 5 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://localhost:8000/analytics/breakdown?group_by=job_title&sort_by=employee_count&descending=true&limit=5",
+    );
+  });
+});
+
+describe("analyticsHref", () => {
+  it("builds clean analytics URLs", () => {
+    expect(analyticsHref({})).toBe("/analytics");
+    expect(analyticsHref({ country: "United States", job_title: "Paralegal" })).toBe(
+      "/analytics?country=United+States&job_title=Paralegal",
     );
   });
 });

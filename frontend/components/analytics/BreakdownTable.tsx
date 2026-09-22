@@ -9,59 +9,49 @@ const DIMENSION_LABELS = {
 
 interface BreakdownTableProps {
   breakdown: AnalyticsBreakdown;
+  caption: string;
 }
 
-export function BreakdownTable({ breakdown }: BreakdownTableProps) {
+const HEADER_CELL = "px-3 py-2 text-xs font-medium text-ink-secondary";
+
+export function BreakdownTable({ breakdown, caption }: BreakdownTableProps) {
   const dimension = DIMENSION_LABELS[breakdown.group_by];
-  const headingId = `breakdown-${breakdown.group_by}`;
+
+  if (breakdown.rows.length === 0) {
+    return (
+      <p role="status" className="px-3 py-4 text-sm text-ink-secondary">
+        No employees match the current filters.
+      </p>
+    );
+  }
 
   return (
-    <section aria-labelledby={headingId} className="space-y-2">
-      <h2 id={headingId} className="text-lg font-semibold">
-        By {dimension.toLowerCase()}
-      </h2>
-      {breakdown.rows.length === 0 ? (
-        <p role="status" className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-600">
-          No employees match the current filters.
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded border border-slate-200 bg-white">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-left">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">{dimension}</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">Employees</th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">
-                  Total payroll ({breakdown.currency})
-                </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium">
-                  Average salary ({breakdown.currency})
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdown.rows.map((row) => (
-                <tr key={row.key} className="border-t border-slate-200">
-                  <th scope="row" className="px-3 py-2 text-left font-normal">
-                    {row.key}
-                  </th>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {row.employee_count.toLocaleString("en-US")}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {formatSalary(row.total_payroll_usd, breakdown.currency)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {row.average_salary_usd === null
-                      ? "—"
-                      : formatSalary(row.average_salary_usd, breakdown.currency)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-sm">
+        <caption className="sr-only">{caption}</caption>
+        <thead className="border-b border-border bg-surface-muted text-left">
+          <tr>
+            <th scope="col" className={HEADER_CELL}>{dimension}</th>
+            <th scope="col" className={`${HEADER_CELL} text-right`}>Employees</th>
+            <th scope="col" className={`${HEADER_CELL} text-right`}>Total payroll ({breakdown.currency})</th>
+            <th scope="col" className={`${HEADER_CELL} text-right`}>Average salary ({breakdown.currency})</th>
+          </tr>
+        </thead>
+        <tbody>
+          {breakdown.rows.map((row) => (
+            <tr key={row.key} className="border-b border-border last:border-b-0">
+              <th scope="row" className="px-3 py-2 text-left font-normal text-ink">
+                {row.key}
+              </th>
+              <td className="px-3 py-2 text-right tabular-nums text-ink">{row.employee_count.toLocaleString("en-US")}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-ink">{formatSalary(row.total_payroll_usd, breakdown.currency)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-ink">
+                {row.average_salary_usd === null ? "—" : formatSalary(row.average_salary_usd, breakdown.currency)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

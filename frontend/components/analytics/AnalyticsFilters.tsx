@@ -1,5 +1,11 @@
-import Link from "next/link";
+"use client";
 
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
+
+import { Button } from "@/components/ui/Button";
+import { Field, Select } from "@/components/ui/Field";
+import { analyticsHref, hasAnalyticsFilters } from "@/lib/api/analytics";
 import type { AnalyticsFilters as Filters } from "@/types/analytics";
 import type { EmployeeFilterOptions } from "@/types/employees";
 
@@ -8,67 +14,57 @@ interface AnalyticsFiltersProps {
   options: EmployeeFilterOptions;
 }
 
-interface SelectFilterProps {
-  name: string;
-  label: string;
-  value: string | undefined;
-  options: string[];
-}
+type FilterKey = keyof Filters;
 
-function SelectFilter({ name, label, value, options }: SelectFilterProps) {
-  return (
-    <label className="flex flex-col gap-1 text-sm">
-      <span className="font-medium">{label}</span>
-      <select
-        name={name}
-        defaultValue={value ?? ""}
-        className="rounded border border-slate-300 bg-white px-2 py-1.5"
-      >
-        <option value="">All</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+const FILTERS: { key: FilterKey; label: string; optionsKey: keyof EmployeeFilterOptions }[] = [
+  { key: "country", label: "Country", optionsKey: "countries" },
+  { key: "department", label: "Department", optionsKey: "departments" },
+  { key: "job_title", label: "Job title", optionsKey: "job_titles" },
+];
 
 export function AnalyticsFilters({ filters, options }: AnalyticsFiltersProps) {
-  const hasActiveFilters = Boolean(filters.country || filters.department || filters.job_title);
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const active = hasAnalyticsFilters(filters);
+
+  function apply(next: Filters) {
+    startTransition(() => {
+      router.replace(analyticsHref(next));
+    });
+  }
 
   return (
     <form
-      method="get"
-      action="/analytics"
       aria-label="Analytics filters"
-      className="grid gap-3 rounded border border-slate-200 bg-white p-4 md:grid-cols-4"
+      onSubmit={(event) => event.preventDefault()}
+      className="rounded-surface border border-border bg-surface px-4 py-3"
     >
-      <SelectFilter name="country" label="Country" value={filters.country} options={options.countries} />
-      <SelectFilter
-        name="department"
-        label="Department"
-        value={filters.department}
-        options={options.departments}
-      />
-      <SelectFilter
-        name="job_title"
-        label="Job title"
-        value={filters.job_title}
-        options={options.job_titles}
-      />
-      <div className="flex items-end gap-3">
-        <button
-          type="submit"
-          className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700"
-        >
-          Apply
-        </button>
-        {hasActiveFilters && (
-          <Link href="/analytics" className="text-sm text-slate-700 hover:underline">
-            Clear
-          </Link>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {FILTERS.map((filter) => (
+          <Field key={filter.key} label={filter.label} htmlFor={`analytics-${filter.key}`}>
+            <Select
+              id={`analytics-${filter.key}`}
+              value={filters[filter.key] ?? ""}
+              onChange={(event) => apply({ ...filters, [filter.key]: event.target.value || undefined })}
+            >
+              <option value="">All</option>
+              {options[filter.optionsKey].map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ))}
+      </div>
+      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-xs">
+        <p role="status" aria-live="polite" className="text-ink-muted">
+          {isPending ? "Updating analytics…" : active ? "Filters apply to every metric and chart on this page." : "Showing the whole organization."}
+        </p>
+        {active && (
+          <Button variant="ghost" onClick={() => apply({})} className="h-7 px-2 text-xs">
+            Clear all
+          </Button>
         )}
       </div>
     </form>

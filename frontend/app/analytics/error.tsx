@@ -2,6 +2,10 @@
 
 import { useEffect } from "react";
 
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/States";
+import { PageHeader } from "@/components/ui/Surface";
+
 export default function AnalyticsError({
   error,
   reset,
@@ -14,18 +18,11 @@ export default function AnalyticsError({
   }, [error]);
 
   return (
-    <div role="alert" className="rounded border border-red-200 bg-red-50 p-4">
-      <h1 className="font-semibold text-red-800">Analytics are unavailable</h1>
-      <p className="mt-1 text-sm text-red-700">
-        Compensation analytics could not be loaded. Check that the API is running and try again.
-      </p>
-      <button
-        type="button"
-        onClick={reset}
-        className="mt-3 rounded bg-red-700 px-3 py-1.5 text-sm text-white hover:bg-red-800"
-      >
-        Try again
-      </button>
+    <div className="space-y-4">
+      <PageHeader title="Analytics" />
+      <Alert tone="error" title="Analytics could not be loaded" action={<Button onClick={reset}>Try again</Button>}>
+        Compensation analytics are temporarily unavailable. Check that the API is running, then try again.
+      </Alert>
     </div>
   );
 }
