@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 7 — Final Product Review and Delivery
+**Current phase:** Phase 8 — Product Design and UX Refinement
 
 ## Status
 
@@ -189,3 +189,25 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [ ] Verify repository, deployment, and demo links (repository and both Cloud Run URLs verified; the demo link is pending the recording).
 
 **Exit condition:** the product is reproducible, documented, deployed, and ready to understand and use without additional setup guidance.
+
+---
+
+## Phase 8 — Product Design and UX Refinement
+
+Requested by the product owner after the end-to-end delivery: make the implemented product feel like one coherent, polished application without changing its architecture or scope.
+
+- [ ] Establish the visual foundations: tokens, typography, spacing, and the reusable UI primitives the product needs.
+- [ ] Build the application shell with a sticky header, product identity, and primary navigation with a clear active state.
+- [ ] Make Ask Compensation a global assistant available from every primary page, and retire the separate page.
+- [ ] Verify the employee directory relies only on server-side pagination, search, and filtering.
+- [ ] Refine directory search, filters, pagination, and URL-addressable state.
+- [ ] Refine the employee detail and compensation editing workflow.
+- [ ] Redesign analytics as a workspace with KPI summary, shared filters, focused charts, and exact values.
+- [ ] Turn the landing page into an overview that orients the HR Manager.
+- [ ] Make loading, empty, error, and success states intentional on every primary surface.
+- [ ] Complete a responsive and accessibility pass.
+- [ ] Align visual consistency across pages.
+- [ ] Update tests and run the full frontend and backend verification.
+
+**Exit condition:** the application uses one visual language, the header is sticky with clear navigation, Ask Compensation is reachable everywhere, directory and analytics remain server-backed, and lint, type, test, and build checks pass.
+
