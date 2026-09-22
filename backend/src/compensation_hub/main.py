@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from compensation_hub.analytics.router import router as analytics_router
 from compensation_hub.analytics.service import MissingFxRateError
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    logging.basicConfig(
+        level=settings.log_level.upper(),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     engine = create_database_engine(str(settings.database_url))
     app.state.session_factory = create_session_factory(engine)
     app.state.query_planner = build_query_planner(settings)
@@ -43,6 +48,12 @@ def missing_fx_rate(_: Request, error: MissingFxRateError) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": str(error)})
 
 
+def database_unavailable(_: Request, error: OperationalError) -> JSONResponse:
+    # The driver message can include the connection target, so only its type is logged.
+    logger.error("Database operation failed: %s", type(error.orig).__name__)
+    return JSONResponse(status_code=503, content={"detail": "The database is unavailable."})
+
+
 def planner_unavailable(_: Request, error: PlannerUnavailableError) -> JSONResponse:
     logger.warning("Ask Compensation unavailable: %s", error)
     return JSONResponse(
@@ -61,6 +72,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(UnsupportedCurrencyError, unsupported_currency)  # type: ignore[arg-type]
     app.add_exception_handler(MissingFxRateError, missing_fx_rate)  # type: ignore[arg-type]
     app.add_exception_handler(PlannerUnavailableError, planner_unavailable)  # type: ignore[arg-type]
+    app.add_exception_handler(OperationalError, database_unavailable)  # type: ignore[arg-type]
 
     app.include_router(employees_router)
     app.include_router(compensation_router)

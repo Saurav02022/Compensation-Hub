@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: PostgresDsn
+    log_level: str = "INFO"
 
     # Ask Compensation is optional: without a Gemini API key the feature reports itself
     # unavailable while every other workflow keeps working.
