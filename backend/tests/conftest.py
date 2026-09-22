@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from pydantic import PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import Engine, text
@@ -11,6 +12,9 @@ from sqlalchemy.orm import Session
 
 from compensation_hub.db.base import Base
 from compensation_hub.db.session import create_database_engine, create_session_factory
+from compensation_hub.main import create_app
+from compensation_hub.seed.dataset import build_seed_dataset
+from compensation_hub.seed.service import seed_database
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,3 +66,21 @@ def db_session(migrated_engine: Engine) -> Iterator[Session]:
         table_names = ", ".join(table.name for table in Base.metadata.sorted_tables)
         session.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY"))
         session.commit()
+
+
+@pytest.fixture
+def client(migrated_engine: Engine, db_session: Session) -> TestClient:
+    """API client bound to the test database; rows written through it are cleaned up by db_session.
+
+    The application lifespan is deliberately not run: it would build a session factory from
+    DATABASE_URL and point the API at the development database instead of the test database.
+    """
+    app = create_app()
+    app.state.session_factory = create_session_factory(migrated_engine)
+    return TestClient(app)
+
+
+@pytest.fixture
+def seeded_client(client: TestClient, db_session: Session) -> TestClient:
+    seed_database(db_session, build_seed_dataset(employee_count=60))
+    return client

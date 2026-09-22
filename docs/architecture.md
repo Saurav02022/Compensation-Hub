@@ -183,6 +183,7 @@ The initial API surface is intentionally small.
 GET    /health
 
 GET    /employees
+GET    /employees/filter-options
 GET    /employees/{employee_id}
 
 PATCH  /employees/{employee_id}/compensation
@@ -205,6 +206,8 @@ POST   /analytics/ask
 * job title.
 
 Pagination is performed in PostgreSQL.
+
+`GET /employees/filter-options` returns the distinct countries, departments, and job titles so the directory can offer exact-match filters.
 
 ### Compensation update
 
