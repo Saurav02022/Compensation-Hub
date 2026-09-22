@@ -119,6 +119,19 @@ def test_build_query_planner_is_unconfigured_without_key(monkeypatch: pytest.Mon
     assert isinstance(build_query_planner(Settings(_env_file=None)), UnconfiguredQueryPlanner)
 
 
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_key_leaves_the_feature_unconfigured(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    monkeypatch.setenv("GEMINI_API_KEY", blank)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.gemini_api_key is None
+    assert isinstance(build_query_planner(settings), UnconfiguredQueryPlanner)
+
+
 def test_settings_never_expose_the_key_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
     monkeypatch.setenv("GEMINI_API_KEY", "super-secret")

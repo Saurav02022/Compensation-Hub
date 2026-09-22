@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import PostgresDsn, SecretStr
+from pydantic import PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"
     gemini_timeout_seconds: float = 20.0
+
+    @field_validator("gemini_api_key", mode="before")
+    @classmethod
+    def blank_key_means_unconfigured(cls, value: object) -> object:
+        # `GEMINI_API_KEY=` in an env file or compose environment must not enable the feature.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 @lru_cache
