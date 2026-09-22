@@ -45,11 +45,14 @@ export function AppHeader({ askAction }: AppHeaderProps) {
   return (
     <>
       <header className="sticky top-0 z-30 border-b border-border bg-surface">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4 sm:px-6">
-          <Link href="/" className="text-sm font-semibold tracking-tight text-ink">
+        <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-x-6 px-4 sm:px-6">
+          <Link href="/" className="py-3 text-sm font-semibold tracking-tight text-ink">
             Compensation Hub
           </Link>
-          <nav aria-label="Primary" className="flex h-full items-stretch gap-1">
+          <nav
+            aria-label="Primary"
+            className="order-last -mx-4 flex basis-full items-stretch gap-1 border-t border-border px-2 sm:order-none sm:mx-0 sm:basis-auto sm:self-stretch sm:border-t-0 sm:px-0"
+          >
             {NAVIGATION.map((item) => {
               const active = isActive(pathname, item.href);
               return (
@@ -57,7 +60,7 @@ export function AppHeader({ askAction }: AppHeaderProps) {
                   key={item.href}
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`relative flex items-center px-2 text-sm transition-colors ${
+                  className={`relative flex min-h-11 items-center px-2 text-sm transition-colors sm:min-h-14 ${
                     active ? "font-medium text-ink" : "text-ink-secondary hover:text-ink"
                   }`}
                 >
@@ -67,15 +70,21 @@ export function AppHeader({ askAction }: AppHeaderProps) {
               );
             })}
           </nav>
-          <div className="ml-auto">
+          <div className="ml-auto py-2">
             <Button
               variant="secondary"
               onClick={() => setAssistantOpen(true)}
               aria-haspopup="dialog"
               aria-expanded={assistantOpen}
+              aria-label="Ask Compensation"
             >
               <span aria-hidden="true" className="h-2 w-2 rounded-full bg-accent" />
-              Ask Compensation
+              <span aria-hidden="true" className="sm:hidden">
+                Ask
+              </span>
+              <span aria-hidden="true" className="hidden sm:inline">
+                Ask Compensation
+              </span>
             </Button>
           </div>
         </div>
