@@ -4,7 +4,7 @@ node_modules/
 .env.*
 !.env.example
 coverage/
-*.test.ts
-*.test.tsx
+**/*.test.ts
+**/*.test.tsx
 vitest.config.mts
 vitest.setup.ts
