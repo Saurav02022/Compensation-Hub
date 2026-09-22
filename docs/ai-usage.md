@@ -291,6 +291,30 @@ How it was verified: Both images built by Cloud Build; migrations 0001-0003 and
   services; the deployed summary matches the local dataset figures.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 7 — final product review
+How AI was used: Checked the implementation against every requirement, decision,
+  and architecture boundary; finalized the README; reviewed the commit history
+  and the development record; reran the full quality suite from a fresh clone;
+  and, once Docker became available, ran the complete container stack from the
+  documented compose commands.
+What was accepted: All requirements and success criteria are covered by
+  implemented, tested, and deployed behavior; D012 and D013 record the two
+  decisions made during implementation; the commit history is a linear series
+  of small conventional commits without tooling signatures.
+What was changed or rejected: The container run found that a blank
+  GEMINI_API_KEY, which the env example and compose environment both produce,
+  was treated as a configured secret and crashed the API at startup; a blank
+  value now means the provider is unconfigured, with a regression test, and the
+  fix was redeployed to Cloud Run.
+How it was verified: 111 backend tests, ruff, and mypy; 32 frontend tests,
+  eslint, tsc, and next build; CI green on the final commit; the compose stack
+  migrated, seeded, and served the directory, detail, analytics, and Ask pages;
+  the redeployed backend answers health, analytics, and a live Ask question.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

@@ -157,7 +157,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 ### Local Runtime
 
 - [x] Add Dockerfiles where they improve repeatable runtime behavior.
-- [x] Add Docker Compose for the local application stack (both images verified by Cloud Build; the full compose stack has not been run on the development machine, which has no Docker).
+- [x] Add Docker Compose for the local application stack.
 - [x] Verify `.env.example` documents all required runtime configuration.
 - [x] Verify the complete product starts from documented local commands.
 
@@ -178,14 +178,14 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ## Phase 7 — Final Product Review and Delivery
 
-- [ ] Review implemented behavior against `requirements.md`.
-- [ ] Confirm implementation remains consistent with `decisions.md` and `architecture.md`.
-- [ ] Reconcile documentation where an accepted decision changed during implementation.
-- [ ] Finalize README setup, testing, and deployment instructions.
-- [ ] Review the AI-assisted development record.
-- [ ] Verify Git history is incremental and understandable.
-- [ ] Perform a clean-clone setup and full verification run.
-- [ ] Record a concise demo of the primary HR workflows.
-- [ ] Verify repository, deployment, and demo links.
+- [x] Review implemented behavior against `requirements.md`.
+- [x] Confirm implementation remains consistent with `decisions.md` and `architecture.md`.
+- [x] Reconcile documentation where an accepted decision changed during implementation.
+- [x] Finalize README setup, testing, and deployment instructions.
+- [x] Review the AI-assisted development record.
+- [x] Verify Git history is incremental and understandable.
+- [x] Perform a clean-clone setup and full verification run.
+- [ ] Record a concise demo of the primary HR workflows (manual step for the product owner; the demo flow is: directory search and filters, employee detail, salary update, compensation overview, Ask Compensation).
+- [ ] Verify repository, deployment, and demo links (repository and both Cloud Run URLs verified; the demo link is pending the recording).
 
 **Exit condition:** the product is reproducible, documented, deployed, and ready to understand and use without additional setup guidance.
