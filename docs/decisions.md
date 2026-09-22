@@ -216,3 +216,19 @@ The product owner has a Gemini API key available, and the SDK supports JSON-sche
 **Trade-off**
 
 Live-model behavior is verified only by the optional evaluation set, not by routine tests. Switching providers later requires a new adapter and a fresh run of that evaluation.
+
+---
+
+## D013 — Deploy to Google Cloud Run in Mumbai with a Supabase PostgreSQL database
+
+The frontend and backend run as separate Cloud Run services in `asia-south1` (Mumbai) inside a dedicated Google Cloud project, built by Cloud Build from the repository Dockerfiles. PostgreSQL is a Supabase project in `ap-south-1` (Mumbai), reached through Supabase's IPv4 connection pooler in session mode.
+
+Secrets are held in Secret Manager and mounted into the backend service, which runs under its own service account with access to nothing else. The frontend keeps the API base URL server-side and calls the backend over HTTPS.
+
+**Why**
+
+The product owner asked for Google Cloud, a new project, and Supabase, with everything hosted in India. Cloud Run fits a two-container modular monolith with no infrastructure to operate, and Cloud Build validates the same Dockerfiles that the local container stack uses. Supabase's pooler is required because Cloud Run egress is IPv4 only while Supabase direct connections are IPv6.
+
+**Trade-off**
+
+Both services are publicly reachable, consistent with D002's single trusted user and absence of authentication; the backend is not restricted to the frontend. Cold starts apply with the minimum instance count of zero.

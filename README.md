@@ -198,6 +198,34 @@ GitHub Actions runs the backend checks against a PostgreSQL service and the fron
 
 Full-stack runtime commands are added as their implementation phases are completed.
 
+## Deployment
+
+The product is deployed in India:
+
+| Component | Where |
+| --- | --- |
+| Frontend | Cloud Run `compensation-hub-web`, `asia-south1` — https://compensation-hub-web-757075627159.asia-south1.run.app |
+| Backend | Cloud Run `compensation-hub-api`, `asia-south1` — https://compensation-hub-api-757075627159.asia-south1.run.app |
+| Database | Supabase PostgreSQL, `ap-south-1`, via the session-mode pooler |
+
+Google Cloud project: `compensation-hub-mvp`. Images are built by Cloud Build from the repository Dockerfiles into Artifact Registry (`asia-south1-docker.pkg.dev/compensation-hub-mvp/compensation-hub`). `DATABASE_URL` and `GEMINI_API_KEY` live in Secret Manager and are mounted into the backend service, which runs as the `compensation-hub-api` service account.
+
+To ship a new version (from the repository root, with `gcloud` authenticated on the project):
+
+```bash
+gcloud builds submit backend --tag asia-south1-docker.pkg.dev/compensation-hub-mvp/compensation-hub/api:$(git rev-parse --short HEAD) --region asia-south1 --project compensation-hub-mvp
+gcloud run deploy compensation-hub-api --image asia-south1-docker.pkg.dev/compensation-hub-mvp/compensation-hub/api:$(git rev-parse --short HEAD) --region asia-south1 --project compensation-hub-mvp
+gcloud builds submit frontend --tag asia-south1-docker.pkg.dev/compensation-hub-mvp/compensation-hub/web:$(git rev-parse --short HEAD) --region asia-south1 --project compensation-hub-mvp
+gcloud run deploy compensation-hub-web --image asia-south1-docker.pkg.dev/compensation-hub-mvp/compensation-hub/web:$(git rev-parse --short HEAD) --region asia-south1 --project compensation-hub-mvp
+```
+
+Existing service settings (secrets, environment variables, service accounts) are kept across deploys. Migrations run against the deployed database from a machine with the connection string in `DATABASE_URL`:
+
+```bash
+cd backend
+uv run alembic upgrade head
+```
+
 ## Project Documentation
 
 The repository keeps product and engineering context separate:
