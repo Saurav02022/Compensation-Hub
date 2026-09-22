@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { openAskCompensation } from "@/components/ask-compensation/launcher";
 import { AppHeader } from "./AppHeader";
 
 let pathname = "/employees/4";
@@ -30,5 +31,14 @@ describe("AppHeader", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens the assistant when a page requests it", () => {
+    pathname = "/";
+    render(<AppHeader askAction={vi.fn()} />);
+
+    act(() => openAskCompensation());
+
+    expect(screen.getByRole("dialog", { name: "Ask Compensation" })).toBeInTheDocument();
   });
 });

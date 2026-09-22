@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { AskDrawer, type AskAction, type AskExchange } from "@/components/ask-compensation/AskDrawer";
+import { OPEN_ASK_COMPENSATION_EVENT } from "@/components/ask-compensation/launcher";
 import { Button } from "@/components/ui/Button";
 
 const NAVIGATION = [
@@ -34,6 +35,12 @@ export function AppHeader({ askAction }: AppHeaderProps) {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [exchanges, setExchanges] = useState<AskExchange[]>([]);
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);
+
+  useEffect(() => {
+    const open = () => setAssistantOpen(true);
+    window.addEventListener(OPEN_ASK_COMPENSATION_EVENT, open);
+    return () => window.removeEventListener(OPEN_ASK_COMPENSATION_EVENT, open);
+  }, []);
 
   return (
     <>
