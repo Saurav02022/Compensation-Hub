@@ -264,6 +264,33 @@ How it was verified: 109 backend tests, ruff, and mypy; 32 frontend tests,
   GitHub Actions for both jobs.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 6 — container images and deployment to Google Cloud and Supabase
+How AI was used: Wrote the backend and frontend Dockerfiles and the full-stack
+  compose services, created the dedicated Google Cloud project with billing,
+  APIs, Artifact Registry, Secret Manager, and least-privilege service accounts,
+  created the Supabase project in Mumbai, migrated and seeded it, built the
+  images with Cloud Build, deployed both Cloud Run services in asia-south1,
+  and smoke-tested the deployed product.
+What was accepted: Cloud Run in Mumbai plus Supabase in Mumbai as chosen by the
+  product owner (D013); Supabase reached through its IPv4 session-mode pooler
+  because Cloud Run egress is IPv4 only; the database URL held only in Secret
+  Manager and mounted into the API service; the API key for Ask Compensation
+  created by the product owner rather than handled by the assistant.
+What was changed or rejected: BuildKit cache mounts were removed from the
+  backend image because Cloud Build's classic builder rejects them; the frontend
+  ignore file needed recursive patterns so test files stayed out of the image;
+  Supabase project creation initially failed on overdue organization invoices,
+  which the product owner settled.
+How it was verified: Both images built by Cloud Build; migrations 0001-0003 and
+  the 10,000-employee seed applied to Supabase with counts confirmed; deployed
+  health, directory, filters, detail, salary update and revert, analytics, and
+  the Ask page's unavailable state exercised in the browser against the live
+  services; the deployed summary matches the local dataset figures.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

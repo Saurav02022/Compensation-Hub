@@ -156,21 +156,21 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ### Local Runtime
 
-- [ ] Add Dockerfiles where they improve repeatable runtime behavior.
-- [ ] Add Docker Compose for the local application stack.
-- [ ] Verify `.env.example` documents all required runtime configuration.
-- [ ] Verify the complete product starts from documented local commands.
+- [x] Add Dockerfiles where they improve repeatable runtime behavior.
+- [x] Add Docker Compose for the local application stack (both images verified by Cloud Build; the full compose stack has not been run on the development machine, which has no Docker).
+- [x] Verify `.env.example` documents all required runtime configuration.
+- [x] Verify the complete product starts from documented local commands.
 
 ### Deployment
 
-- [ ] Select appropriate managed deployment targets.
-- [ ] Provision PostgreSQL.
-- [ ] Deploy the backend.
-- [ ] Deploy the frontend.
-- [ ] Configure production environment variables and secrets.
-- [ ] Run database migrations and seed the deployed dataset.
-- [ ] Smoke-test the deployed product.
-- [ ] Verify an LLM-provider outage does not break core compensation workflows.
+- [x] Select appropriate managed deployment targets.
+- [x] Provision PostgreSQL.
+- [x] Deploy the backend.
+- [x] Deploy the frontend.
+- [ ] Configure production environment variables and secrets (`DATABASE_URL` is in Secret Manager and mounted; `GEMINI_API_KEY` still has to be created in Secret Manager by the product owner and mounted into the backend service).
+- [x] Run database migrations and seed the deployed dataset.
+- [x] Smoke-test the deployed product.
+- [x] Verify an LLM-provider outage does not break core compensation workflows.
 
 **Exit condition:** Compensation Hub is accessible through a deployed environment and remains reproducible locally from documented setup steps.
 
