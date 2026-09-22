@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { CompensationForm } from "@/components/compensation/CompensationForm";
+import { CompensationPanel } from "@/components/compensation/CompensationPanel";
 import { EmployeeDetails } from "@/components/employees/EmployeeDetails";
+import { PageHeader } from "@/components/ui/Surface";
 import { ApiError } from "@/lib/api/client";
 import { fetchEmployee } from "@/lib/api/employees";
 import type { Employee } from "@/types/employees";
@@ -29,21 +30,25 @@ export default async function EmployeePage(props: PageProps<"/employees/[employe
   const action = updateCompensationAction.bind(null, employee.id);
 
   return (
-    <div className="space-y-6">
-      <Link href="/employees" className="text-sm text-slate-700 hover:underline">
-        ← Back to employees
-      </Link>
-      <div>
-        <h1 className="text-2xl font-semibold">{employee.full_name}</h1>
-        <p className="text-sm text-slate-600">{employee.employee_code}</p>
+    <div className="space-y-4">
+      <nav aria-label="Breadcrumb" className="text-sm">
+        <Link href="/employees" className="text-ink-secondary hover:text-ink hover:underline">
+          Employees
+        </Link>
+        <span aria-hidden="true" className="mx-2 text-ink-muted">
+          /
+        </span>
+        <span className="text-ink">{employee.full_name}</span>
+      </nav>
+      <PageHeader
+        title={employee.full_name}
+        description={`${employee.job_title} · ${employee.department} · ${employee.country}`}
+        meta={<span className="font-mono">{employee.employee_code}</span>}
+      />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <EmployeeDetails employee={employee} />
+        <CompensationPanel action={action} compensation={employee.compensation} />
       </div>
-      <EmployeeDetails employee={employee} />
-      <section aria-labelledby="compensation-heading" className="rounded border border-slate-200 bg-white p-4">
-        <h2 id="compensation-heading" className="text-lg font-semibold">
-          Update current compensation
-        </h2>
-        <CompensationForm action={action} compensation={employee.compensation} />
-      </section>
     </div>
   );
 }

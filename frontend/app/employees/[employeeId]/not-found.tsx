@@ -1,13 +1,18 @@
 import Link from "next/link";
 
+import { buttonClassName } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/States";
+
 export default function EmployeeNotFound() {
   return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-semibold">Employee not found</h1>
-      <p className="text-sm text-slate-600">No employee exists with that identifier.</p>
-      <Link href="/employees" className="text-sm text-slate-700 hover:underline">
-        ← Back to employees
-      </Link>
-    </div>
+    <EmptyState
+      title="Employee not found"
+      description="No employee exists with that identifier. It may have been mistyped or the link may be out of date."
+      action={
+        <Link href="/employees" className={buttonClassName("secondary")}>
+          Back to employees
+        </Link>
+      }
+    />
   );
 }

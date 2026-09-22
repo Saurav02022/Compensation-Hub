@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { ApiError } from "@/lib/api/client";
 import { updateCompensation } from "@/lib/api/employees";
-import type { CompensationFormState } from "@/components/compensation/CompensationForm";
+import type { CompensationFormState } from "@/components/compensation/CompensationPanel";
 
 function fieldValue(formData: FormData, name: string): string {
   const value = formData.get(name);
