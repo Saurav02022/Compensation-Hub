@@ -1,23 +1,37 @@
-import { EmployeeFilters } from "@/components/employees/EmployeeFilters";
 import { EmployeeTable } from "@/components/employees/EmployeeTable";
+import { EmployeeToolbar } from "@/components/employees/EmployeeToolbar";
 import { Pagination } from "@/components/employees/Pagination";
-import { fetchEmployees, fetchFilterOptions, queryFromSearchParams } from "@/lib/api/employees";
+import { PageHeader } from "@/components/ui/Surface";
+import {
+  fetchEmployees,
+  fetchFilterOptions,
+  hasActiveFilters,
+  queryFromSearchParams,
+} from "@/lib/api/employees";
 
 export default async function EmployeesPage(props: PageProps<"/employees">) {
   const query = queryFromSearchParams(await props.searchParams);
   const [page, filterOptions] = await Promise.all([fetchEmployees(query), fetchFilterOptions()]);
+  const filtered = hasActiveFilters(query);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Employees</h1>
-        <p className="text-sm text-slate-600">
-          Search by name or employee code, and filter by country, department, or job title.
-        </p>
-      </div>
-      <EmployeeFilters query={query} options={filterOptions} />
-      <EmployeeTable employees={page.items} />
-      <Pagination query={query} page={page.page} totalPages={page.total_pages} totalItems={page.total_items} />
+    <div className="space-y-4">
+      <PageHeader
+        title="Employees"
+        description="Find an employee and open their current compensation."
+        meta={`${page.total_items.toLocaleString("en-US")} ${page.total_items === 1 ? "employee" : "employees"}${filtered ? " match" : ""}`}
+      />
+      <EmployeeToolbar query={query} options={filterOptions} />
+      <EmployeeTable employees={page.items} filtered={filtered} />
+      {page.total_items > 0 && (
+        <Pagination
+          query={query}
+          page={page.page}
+          pageSize={page.page_size}
+          totalPages={page.total_pages}
+          totalItems={page.total_items}
+        />
+      )}
     </div>
   );
 }

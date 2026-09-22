@@ -1,18 +1,13 @@
 "use server";
 
-import type { AskFormState } from "@/components/ask-compensation/AskForm";
-import { ApiError } from "@/lib/api/client";
+import type { AskOutcome } from "@/components/ask-compensation/AskDrawer";
 import { askCompensation } from "@/lib/api/ask";
+import { ApiError } from "@/lib/api/client";
 
-export async function askCompensationAction(
-  _previous: AskFormState,
-  formData: FormData,
-): Promise<AskFormState> {
-  const raw = formData.get("question");
-  const question = typeof raw === "string" ? raw.trim() : "";
-
+export async function askCompensationAction(question: string): Promise<AskOutcome> {
+  const trimmed = question.trim();
   try {
-    return { status: "answered", response: await askCompensation(question) };
+    return { status: "answered", response: await askCompensation(trimmed) };
   } catch (error) {
     if (error instanceof ApiError && error.status === 503) {
       return { status: "unavailable", message: error.message };

@@ -26,25 +26,28 @@ const employees: Employee[] = [
 ];
 
 describe("EmployeeTable", () => {
-  it("renders one row per employee linking to the detail page", () => {
-    render(<EmployeeTable employees={employees} />);
+  it("renders one row per employee with the name linking to the detail page", () => {
+    render(<EmployeeTable employees={employees} filtered={false} />);
 
     expect(screen.getAllByRole("row")).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Michael Nguyen" })).toHaveAttribute(
-      "href",
-      "/employees/1",
-    );
-    expect(screen.getByRole("link", { name: "EMP00002" })).toHaveAttribute("href", "/employees/2");
+    expect(screen.getByRole("link", { name: "Michael Nguyen" })).toHaveAttribute("href", "/employees/1");
+    expect(screen.getByText("EMP00002")).toBeInTheDocument();
     expect(screen.getByText("USD 62,000.00")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("Not on record")).toBeInTheDocument();
   });
 
-  it("shows an empty state when there are no employees", () => {
-    render(<EmployeeTable employees={[]} />);
+  it("offers to clear filters when a filtered search has no results", () => {
+    render(<EmployeeTable employees={[]} filtered />);
 
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "No employees match the current search and filters.",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("No employees match");
+    expect(screen.getByRole("link", { name: "Clear search and filters" })).toHaveAttribute("href", "/employees");
+  });
+
+  it("explains an empty dataset without offering to clear filters", () => {
+    render(<EmployeeTable employees={[]} filtered={false} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("No employees yet");
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });

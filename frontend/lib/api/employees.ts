@@ -43,6 +43,16 @@ export function employeeListSearchParams(query: EmployeeListQuery): URLSearchPar
   return params;
 }
 
+/** Directory URL for a query; the first page and empty values are omitted so URLs stay clean. */
+export function employeesHref(query: EmployeeListQuery): string {
+  const params = employeeListSearchParams(query).toString();
+  return params ? `/employees?${params}` : "/employees";
+}
+
+export function hasActiveFilters(query: EmployeeListQuery): boolean {
+  return Boolean(query.search || query.country || query.department || query.job_title);
+}
+
 export function fetchEmployees(query: EmployeeListQuery): Promise<EmployeePage> {
   const params = employeeListSearchParams(query).toString();
   return apiFetch<EmployeePage>(params ? `/employees?${params}` : "/employees");
