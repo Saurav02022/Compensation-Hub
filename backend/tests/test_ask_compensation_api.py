@@ -295,6 +295,50 @@ def test_unknown_filter_value_is_reported_instead_of_guessed(seeded_client: Test
     assert "There is no country named 'Atlantis'" in str(body["answer"])
 
 
+def test_null_valued_sibling_keys_from_schema_guided_output_are_ignored(
+    seeded_client: TestClient,
+) -> None:
+    question = "Show average compensation by department."
+    install(
+        seeded_client,
+        FakePlanner(
+            {
+                question: json.dumps(
+                    {
+                        "status": "plan",
+                        "plan": {"metric": "average_salary", "group_by": "department"},
+                        "reason": None,
+                    }
+                )
+            }
+        ),
+    )
+
+    body = ask(seeded_client, question)
+
+    assert body["status"] == "answered"
+    assert body["plan"]["group_by"] == "department"  # type: ignore[index]
+
+
+def test_null_plan_alongside_unsupported_status_is_accepted(seeded_client: TestClient) -> None:
+    question = "Who deserves a raise?"
+    install(
+        seeded_client,
+        FakePlanner(
+            {
+                question: json.dumps(
+                    {"status": "unsupported", "reason": "Not supported", "plan": None}
+                )
+            }
+        ),
+    )
+
+    body = ask(seeded_client, question)
+
+    assert body["status"] == "unsupported"
+    assert "Not supported" in str(body["answer"])
+
+
 def test_code_fenced_json_is_accepted(seeded_client: TestClient) -> None:
     question = "How many employees are there?"
     install(

@@ -66,6 +66,10 @@ def parse_planner_response(raw: str) -> PlannerResponse:
         payload = json.loads(text)
     except json.JSONDecodeError as error:
         raise InvalidPlanError(f"Planner response is not valid JSON: {error.msg}") from error
+    if isinstance(payload, dict):
+        # Schema-guided providers emit every top-level property, so a plan arrives with
+        # "reason": null and vice versa. Nulls carry no content; non-null extras are still rejected.
+        payload = {key: value for key, value in payload.items() if value is not None}
     try:
         return PLANNER_RESPONSE.validate_python(payload)
     except ValidationError as error:

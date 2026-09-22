@@ -142,6 +142,8 @@ class GeminiQueryPlanner:
                     response_mime_type="application/json",
                     response_json_schema=PLANNER_RESPONSE_JSON_SCHEMA,
                     max_output_tokens=512,
+                    # No tools are offered, so the SDK's function-calling loop is irrelevant.
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                 ),
             )
         except errors.APIError as error:
