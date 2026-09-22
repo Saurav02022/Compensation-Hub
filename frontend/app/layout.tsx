@@ -25,6 +25,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Link href="/analytics" className="text-sm text-slate-700 hover:underline">
               Analytics
             </Link>
+            <Link href="/ask" className="text-sm text-slate-700 hover:underline">
+              Ask Compensation
+            </Link>
           </nav>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
