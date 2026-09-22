@@ -81,8 +81,8 @@ The backend is a modular monolith. Product rules, validation, analytics, currenc
 
 ```text
 Compensation-Hub/
-├── frontend/               # Next.js application
-├── backend/                # FastAPI application
+├── frontend/               # Next.js application (Dockerfile included)
+├── backend/                # FastAPI application (Dockerfile, Alembic migrations, tests)
 │   └── src/
 │       └── compensation_hub/
 ├── docs/
@@ -91,6 +91,9 @@ Compensation-Hub/
 │   ├── architecture.md
 │   ├── ai-usage.md
 │   └── project-plan.md
+├── docker/                 # PostgreSQL init script for the local container stack
+├── .github/workflows/      # Continuous integration
+├── compose.yaml            # Local PostgreSQL and full container stack
 ├── AGENTS.md
 ├── CLAUDE.md
 └── README.md
@@ -196,7 +199,6 @@ The frontend is then at `http://localhost:3000` and the API at `http://localhost
 
 GitHub Actions runs the backend checks against a PostgreSQL service and the frontend checks on every push to `main` and every pull request (`.github/workflows/ci.yml`). CI has no LLM credentials; the Ask Compensation tests use a mocked planner and the live evaluation is excluded.
 
-Full-stack runtime commands are added as their implementation phases are completed.
 
 ## Deployment
 
