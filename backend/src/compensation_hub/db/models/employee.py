@@ -11,6 +11,11 @@ if TYPE_CHECKING:
     from compensation_hub.db.models.compensation import Compensation
 
 
+# Byte-order collation keeps ordering identical on every PostgreSQL host; locale
+# collations differ between platforms (for example in how spaces sort).
+TEXT_COLLATION = "C"
+
+
 class Employee(Base):
     __tablename__ = "employees"
     __table_args__ = (
@@ -23,11 +28,11 @@ class Employee(Base):
     )
 
     id: Mapped[int] = mapped_column(Identity(), primary_key=True)
-    employee_code: Mapped[str] = mapped_column(String(20), unique=True)
-    full_name: Mapped[str] = mapped_column(String(200))
-    country: Mapped[str] = mapped_column(String(100))
-    department: Mapped[str] = mapped_column(String(100))
-    job_title: Mapped[str] = mapped_column(String(100))
+    employee_code: Mapped[str] = mapped_column(String(20, collation=TEXT_COLLATION), unique=True)
+    full_name: Mapped[str] = mapped_column(String(200, collation=TEXT_COLLATION))
+    country: Mapped[str] = mapped_column(String(100, collation=TEXT_COLLATION))
+    department: Mapped[str] = mapped_column(String(100, collation=TEXT_COLLATION))
+    job_title: Mapped[str] = mapped_column(String(100, collation=TEXT_COLLATION))
 
     compensation: Mapped[Compensation | None] = relationship(
         back_populates="employee", cascade="all, delete-orphan"
