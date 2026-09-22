@@ -185,6 +185,32 @@ How it was verified: 64 backend tests, ruff, and mypy pass; 21 frontend tests,
   were exercised end to end in a browser against the seeded database.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 3 — compensation analytics and performance review
+How AI was used: Implemented the analytics service and endpoints, the
+  compensation overview page, correctness tests against expected values
+  computed independently in Decimal arithmetic, and an EXPLAIN ANALYZE review
+  of the directory and analytics queries on the 10,000-row dataset.
+What was accepted: All aggregation in PostgreSQL over employees LEFT JOIN
+  compensation LEFT JOIN fx_rates with salary * rate_to_usd in NUMERIC
+  arithmetic; employees without compensation counted in headcount but excluded
+  from payroll and average; a missing exchange rate raising a controlled
+  error, proven by a test that temporarily lifts the foreign key; breakdown
+  sorting and limits so Ask Compensation can reuse the same service; indexes
+  on (full_name, employee_code), country, department, and job_title, which the
+  plans showed cut the ordered directory page from 7-23 ms of sorting to under
+  2 ms and turned filtered scans into index scans.
+What was changed or rejected: No index was added for the search box, since a
+  contains-match ILIKE cannot use a B-tree index and the full scan completes in
+  about 12 ms at this scale; no caching or extra infrastructure was added.
+How it was verified: 77 backend tests, ruff, and mypy pass; 29 frontend tests,
+  eslint, tsc, and next build pass; the overview and filtered breakdowns were
+  checked against the API and in the browser with the full seeded dataset;
+  migration 0002 applied with no autogenerate drift.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

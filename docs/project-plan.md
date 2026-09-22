@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 3 — Compensation Analytics
+**Current phase:** Phase 4 — Ask Compensation
 
 ## Status
 
@@ -92,29 +92,29 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ### Backend
 
-- [ ] Implement employee-count analytics.
-- [ ] Implement total annual payroll.
-- [ ] Implement average annual salary.
-- [ ] Implement breakdowns by country, department, and job title.
-- [ ] Normalize cross-country monetary metrics to USD using seeded FX rates.
-- [ ] Keep filtering and aggregation in PostgreSQL.
-- [ ] Add correctness tests for metrics, grouping, filtering, and currency normalization.
+- [x] Implement employee-count analytics.
+- [x] Implement total annual payroll.
+- [x] Implement average annual salary.
+- [x] Implement breakdowns by country, department, and job title.
+- [x] Normalize cross-country monetary metrics to USD using seeded FX rates.
+- [x] Keep filtering and aggregation in PostgreSQL.
+- [x] Add correctness tests for metrics, grouping, filtering, and currency normalization.
 
 ### Frontend
 
-- [ ] Build the compensation overview.
-- [ ] Present organization-level metrics with explicit currency context.
-- [ ] Add breakdown views for the supported dimensions.
-- [ ] Handle loading, empty, and error states.
+- [x] Build the compensation overview.
+- [x] Present organization-level metrics with explicit currency context.
+- [x] Add breakdown views for the supported dimensions.
+- [x] Handle loading, empty, and error states.
 
 ### Performance Review
 
-- [ ] Review employee-directory query behavior.
-- [ ] Review analytics query behavior.
-- [ ] Add or adjust indexes only where query patterns justify them.
-- [ ] Confirm listing and analytics do not load the complete employee dataset into application memory.
+- [x] Review employee-directory query behavior.
+- [x] Review analytics query behavior.
+- [x] Add or adjust indexes only where query patterns justify them.
+- [x] Confirm listing and analytics do not load the complete employee dataset into application memory.
 
-**Exit condition:** the supported compensation questions can be answered reliably through deterministic application and database logic without AI.
+**Exit condition:** complete — employee count, total payroll, average salary, and breakdowns by country, department, and job title are computed in PostgreSQL with USD normalization and shown in the compensation overview, without any AI involvement.
 
 ---
 
