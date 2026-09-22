@@ -155,11 +155,22 @@ PostgreSQL integration tests run only when `TEST_DATABASE_URL` is set, either in
 
 ```bash
 cd frontend
+cp .env.example .env
 npm install
 npm run dev
 ```
 
-The frontend is available at `http://localhost:3000`.
+The frontend is available at `http://localhost:3000` and needs the API running. `API_BASE_URL` (default `http://localhost:8000`) is read only on the server: pages fetch employee data during server rendering and the compensation form submits through a Server Action, so the browser never calls the API directly.
+
+### Frontend checks
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
 
 Full-stack runtime commands are added as their implementation phases are completed.
 

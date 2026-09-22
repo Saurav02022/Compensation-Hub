@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 2 — Employee Directory and Compensation Management
+**Current phase:** Phase 3 — Compensation Analytics
 
 ## Status
 
@@ -77,14 +77,14 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ### Frontend
 
-- [ ] Build the employee directory.
-- [ ] Add search, filters, and server-backed pagination.
-- [ ] Handle loading, empty, and error states.
-- [ ] Build the employee detail view.
-- [ ] Build the current-compensation edit flow.
-- [ ] Add tests for important user behavior.
+- [x] Build the employee directory.
+- [x] Add search, filters, and server-backed pagination.
+- [x] Handle loading, empty, and error states.
+- [x] Build the employee detail view.
+- [x] Build the current-compensation edit flow.
+- [x] Add tests for important user behavior.
 
-**Exit condition:** the HR Manager can find an employee, view current compensation, and update salary end to end.
+**Exit condition:** complete — the HR Manager can search and filter the directory, open an employee, and update the current salary end to end through the Next.js UI and FastAPI API.
 
 ---
 

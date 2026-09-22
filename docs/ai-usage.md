@@ -161,6 +161,30 @@ How it was verified: Migration upgraded, downgraded, and upgraded again against
   ruff check, ruff format --check, and mypy all pass.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 2 — employee directory and compensation management
+How AI was used: Implemented the paginated, searchable, filterable employee API,
+  the compensation update endpoint, and the Next.js directory, detail, and
+  compensation edit screens with their loading, empty, error, and not-found
+  states, plus backend API tests and frontend component tests.
+What was accepted: Filtering, search, and pagination executed in PostgreSQL;
+  salaries serialized as exact decimal strings; PATCH replacing both salary and
+  currency with the currency validated against seeded FX rates; server-rendered
+  pages with a GET filter form and a Server Action for the update so the API
+  base URL stays server-only; a GET /employees/filter-options endpoint added to
+  the documented API for the filter dropdowns.
+What was changed or rejected: A test fixture that ran the FastAPI lifespan was
+  pointing the API under test at the development database and was replaced;
+  a form remount key that erased the success message after saving was removed;
+  the Next.js dev server's generated agent rule files were disabled.
+How it was verified: 64 backend tests, ruff, and mypy pass; 21 frontend tests,
+  eslint, tsc, and next build pass; the directory, filters, pagination, detail,
+  valid and invalid compensation updates, not-found, and API-down error states
+  were exercised end to end in a browser against the seeded database.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.
