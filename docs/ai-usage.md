@@ -211,6 +211,35 @@ How it was verified: 77 backend tests, ruff, and mypy pass; 29 frontend tests,
   migration 0002 applied with no autogenerate drift.
 ```
 
+```text
+Date: 2026-09-22
+Tool: Claude Code
+Task: Phase 4 — Ask Compensation
+How AI was used: Designed the constrained query-plan schema, the planner
+  interface, the validation and execution service, the deterministic answer
+  composition, the Gemini adapter and its system instruction, the Ask page,
+  the mocked-planner tests, and the optional live evaluation set.
+What was accepted: A flat query plan (metric, exact filters, group by, sort,
+  limit) as the only model output that is ever executed; strict Pydantic
+  validation with unknown non-null keys rejected; filter values checked against
+  the real dimension values before execution; answers composed by application
+  code from analytics results, never by the model; a 503 for provider outages
+  with every other feature unaffected; the planner receives only the question
+  and the dimension vocabulary; Gemini selected by the product owner (D012).
+What was changed or rejected: The first live run showed Gemini emitting
+  "reason": null beside a plan because the response schema lists both
+  properties, which the strict schema rejected; null-valued top-level keys are
+  now dropped before validation, with regression tests, while non-null extras
+  remain rejected. The provider adapter was written only after the provider
+  decision was made explicitly rather than assumed.
+How it was verified: 107 backend tests with the planner mocked, ruff, and mypy
+  pass; 32 frontend tests, eslint, tsc, and next build pass; the 8-case live
+  evaluation (5 supported questions mapped to the expected plans, 3 unsupported
+  questions declined) passed on three consecutive runs; the Ask page was
+  exercised in the browser against the seeded database with the real model,
+  and a grouped answer matched the overview page figures.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

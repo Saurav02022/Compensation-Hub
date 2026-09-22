@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 4 — Ask Compensation
+**Current phase:** Phase 5 — Quality and Continuous Integration
 
 ## Status
 
@@ -122,7 +122,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 - [x] Define the constrained analytics query-plan schema.
 - [x] Add the LLM provider behind a small backend interface.
-- [ ] Convert supported natural-language questions into structured query plans.
+- [x] Convert supported natural-language questions into structured query plans.
 - [x] Validate every generated plan before execution.
 - [x] Execute valid plans through the existing analytics capability.
 - [x] Return clear responses for unsupported or invalid questions.
@@ -131,9 +131,9 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [x] Build the Ask Compensation frontend experience.
 - [x] Add deterministic tests with the LLM boundary mocked.
 - [x] Add a small optional live-model evaluation set.
-- [ ] Record meaningful AI-assisted engineering work in `ai-usage.md`.
+- [x] Record meaningful AI-assisted engineering work in `ai-usage.md`.
 
-**Exit condition:** supported natural-language questions use the same trusted analytics logic as the rest of the product, while core workflows remain independent of the LLM provider.
+**Exit condition:** complete — supported questions are mapped by Gemini to validated query plans and answered by the same analytics service as the overview page; with no provider configured or the provider failing, the API returns a clear 503 for Ask Compensation while the directory, compensation updates, and analytics keep working.
 
 ---
 
