@@ -13,192 +13,165 @@ DataField = Literal[
     "currency_code",
     "salary_usd",
     "rate_to_usd",
-    "has_compensation",
 ]
-FilterOperator = Literal[
-    "eq",
-    "neq",
+NumericField = Literal["annual_salary", "salary_usd", "rate_to_usd"]
+AggregateFunction = Literal["count", "sum", "average", "minimum", "maximum", "median"]
+BinaryOperator = Literal["add", "subtract", "multiply", "divide"]
+PredicateOperator = Literal[
+    "equals",
+    "not_equals",
     "in",
-    "not_in",
     "contains",
-    "starts_with",
-    "ends_with",
-    "gt",
-    "gte",
-    "lt",
-    "lte",
+    "greater_than",
+    "greater_than_or_equal",
+    "less_than",
+    "less_than_or_equal",
     "is_null",
-    "not_null",
-]
-AggregateFunction = Literal[
-    "count",
-    "count_distinct",
-    "sum",
-    "avg",
-    "min",
-    "max",
-    "median",
-    "stddev",
-    "variance",
-    "percentile",
+    "is_not_null",
 ]
 SortDirection = Literal["asc", "desc"]
-CalculationOperator = Literal[
-    "add",
-    "subtract",
-    "multiply",
-    "divide",
-    "percentage",
-    "percent_difference",
-    "ratio",
-]
 ResultFormat = Literal["text", "number", "count", "currency", "percent"]
 
-Identifier = Annotated[
+Alias = Annotated[
     str,
-    StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z][A-Za-z0-9_]{0,49}$"),
+    StringConstraints(strip_whitespace=True, pattern=r"^[a-z][a-z0-9_]{0,39}$"),
 ]
-QuestionText = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=3, max_length=500),
-]
-FilterValue = Annotated[
-    str,
-    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
-]
+DisplayLabel = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 CurrencyCode = Annotated[
-    str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z]{3}$")
+    str,
+    StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z]{3}$"),
 ]
+TextValue = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+PredicateValue = str | Decimal | bool
 
 
-class FilterClause(BaseModel):
-    """One validated predicate over the read-only employee-compensation dataset."""
+class Predicate(BaseModel):
+    """One validated predicate over the read-only Compensation Hub data surface."""
 
     model_config = ConfigDict(extra="forbid")
 
     field: DataField
-    op: FilterOperator
-    values: Annotated[list[FilterValue], Field(max_length=20)] = Field(default_factory=list)
+    operator: PredicateOperator
+    value: PredicateValue | None = None
+    values: Annotated[list[PredicateValue], Field(max_length=30)] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def value_shape_matches_operator(self) -> "FilterClause":
-        if self.op in ("is_null", "not_null"):
-            if self.values:
-                raise ValueError(f"{self.op} does not accept values")
+    def validate_shape(self) -> "Predicate":
+        if self.operator in ("is_null", "is_not_null"):
+            if self.value is not None or self.values:
+                raise ValueError("null predicates cannot contain values")
             return self
-        if not self.values:
-            raise ValueError(f"{self.op} requires at least one value")
-        if self.op not in ("in", "not_in") and len(self.values) != 1:
-            raise ValueError(f"{self.op} accepts exactly one value")
+        if self.operator == "in":
+            if not self.values or self.value is not None:
+                raise ValueError("in predicates require values and no value")
+            return self
+        if self.value is None or self.values:
+            raise ValueError("this predicate requires exactly one value")
         return self
 
 
-class Projection(BaseModel):
-    """A field or aggregate returned by one query."""
-
+class FieldExpression(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    alias: Identifier
+    kind: Literal["field"]
+    field: DataField
+
+
+class AggregateExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["aggregate"]
+    function: AggregateFunction
     field: DataField | None = None
-    aggregate: AggregateFunction | None = None
-    percentile: Decimal | None = Field(default=None, gt=0, lt=1)
+    distinct: bool = False
+    where: Annotated[list[Predicate], Field(max_length=12)] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def projection_is_well_formed(self) -> "Projection":
-        if self.aggregate is None:
-            if self.field is None:
-                raise ValueError("a non-aggregate projection requires field")
-            if self.percentile is not None:
-                raise ValueError("percentile is only valid with percentile aggregation")
+    def validate_aggregate(self) -> "AggregateExpression":
+        if self.function == "count":
+            if self.distinct and self.field is None:
+                raise ValueError("distinct count requires a field")
             return self
-
-        if self.aggregate == "count":
-            if self.percentile is not None:
-                raise ValueError("count does not accept percentile")
-            return self
-
-        if self.field is None:
-            raise ValueError(f"{self.aggregate} requires field")
-
-        if self.aggregate == "percentile":
-            if self.percentile is None:
-                raise ValueError("percentile aggregation requires percentile")
-        elif self.percentile is not None:
-            raise ValueError("percentile parameter is only valid for percentile aggregation")
+        if self.field not in ("annual_salary", "salary_usd", "rate_to_usd"):
+            raise ValueError(f"{self.function} requires a numeric field")
+        if self.distinct:
+            raise ValueError("distinct is supported only for count")
         return self
 
 
-class OrderClause(BaseModel):
+class LiteralExpression(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    key: Identifier
+    kind: Literal["literal"]
+    value: Decimal
+
+
+class BinaryExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["binary"]
+    operator: BinaryOperator
+    left: "Expression"
+    right: "Expression"
+
+
+class CurrencyExpression(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["currency"]
+    currency_code: CurrencyCode
+    expression: "Expression"
+
+
+Expression = Annotated[
+    FieldExpression
+    | AggregateExpression
+    | LiteralExpression
+    | BinaryExpression
+    | CurrencyExpression,
+    Field(discriminator="kind"),
+]
+
+
+class SelectItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    alias: Alias
+    label: DisplayLabel
+    expression: Expression
+    format: ResultFormat = "text"
+
+
+class OrderBy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Alias
     direction: SortDirection = "asc"
 
 
-class DataQuery(BaseModel):
-    """One bounded SELECT-like operation expressed without SQL."""
+class QueryPlan(BaseModel):
+    """A generic, bounded, read-only query over the Compensation Hub data surface."""
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Identifier
-    select: Annotated[list[Projection], Field(min_length=1, max_length=10)]
-    filters: Annotated[list[FilterClause], Field(max_length=20)] = Field(default_factory=list)
+    select: Annotated[list[SelectItem], Field(min_length=1, max_length=12)]
+    where: Annotated[list[Predicate], Field(max_length=16)] = Field(default_factory=list)
     group_by: Annotated[list[DataField], Field(max_length=4)] = Field(default_factory=list)
-    order_by: Annotated[list[OrderClause], Field(max_length=4)] = Field(default_factory=list)
     distinct: bool = False
-    limit: Annotated[int, Field(ge=1, le=100)] | None = None
-    target_currency: CurrencyCode | None = None
+    order_by: Annotated[list[OrderBy], Field(max_length=4)] = Field(default_factory=list)
+    limit: Annotated[int, Field(ge=1, le=100)] = 50
 
     @model_validator(mode="after")
-    def query_shape_is_consistent(self) -> "DataQuery":
-        aliases = [projection.alias for projection in self.select]
+    def validate_aliases(self) -> "QueryPlan":
+        aliases = [item.alias for item in self.select]
         if len(aliases) != len(set(aliases)):
-            raise ValueError("projection aliases must be unique")
+            raise ValueError("select aliases must be unique")
+        alias_set = set(aliases)
+        for ordering in self.order_by:
+            if ordering.key not in alias_set:
+                raise ValueError(f"order key {ordering.key} is not a select alias")
         if len(self.group_by) != len(set(self.group_by)):
             raise ValueError("group_by fields must be unique")
-        if self.distinct and any(projection.aggregate is not None for projection in self.select):
-            raise ValueError("distinct cannot be combined with aggregate projections")
-        return self
-
-
-class ResultRef(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    query: Identifier
-    column: Identifier
-
-
-class Calculation(BaseModel):
-    """Optional deterministic arithmetic over scalar query results."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: CalculationOperator
-    left: ResultRef
-    right: ResultRef
-    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
-    format: ResultFormat = "number"
-
-
-class QueryProgram(BaseModel):
-    """A small read-only program that can derive an answer from available product data."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    queries: Annotated[list[DataQuery], Field(min_length=1, max_length=4)]
-    calculation: Calculation | None = None
-
-    @model_validator(mode="after")
-    def program_references_existing_queries(self) -> "QueryProgram":
-        names = [query.name for query in self.queries]
-        if len(names) != len(set(names)):
-            raise ValueError("query names must be unique")
-
-        if self.calculation is not None:
-            known = set(names)
-            for ref in (self.calculation.left, self.calculation.right):
-                if ref.query not in known:
-                    raise ValueError(f"calculation references unknown query {ref.query}")
         return self
 
 
@@ -206,32 +179,32 @@ class PlannedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["plan"]
-    plan: QueryProgram
+    plan: QueryPlan
 
 
 class UnsupportedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["unsupported"]
-    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
+    missing: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
 
 
 PlannerResponse = Annotated[PlannedResponse | UnsupportedResponse, Field(discriminator="status")]
 
 
 class AskHistoryItem(BaseModel):
-    """Prior validated intent; query results and salary values are not sent back to the model."""
+    """Prior validated intent; result values are deliberately not sent back to the planner."""
 
     model_config = ConfigDict(extra="forbid")
 
-    question: QuestionText
-    plan: QueryProgram
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+    plan: QueryPlan
 
 
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: QuestionText
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
     history: Annotated[list[AskHistoryItem], Field(max_length=6)] = Field(default_factory=list)
 
 
@@ -243,7 +216,7 @@ class AskResultColumn(BaseModel):
 
 class AskResult(BaseModel):
     kind: Literal["scalar", "table"]
-    currency: CurrencyCode | None = None
+    currency_by_column: dict[str, CurrencyCode] = Field(default_factory=dict)
     columns: list[AskResultColumn]
     rows: list[dict[str, str | int | None]]
 
@@ -253,6 +226,9 @@ class AskResponse(BaseModel):
     question: str
     answer: str
     interpretation: str | None = None
-    plan: QueryProgram | None = None
+    plan: QueryPlan | None = None
     result: AskResult | None = None
-    analytics_path: str | None = None
+
+
+BinaryExpression.model_rebuild()
+CurrencyExpression.model_rebuild()
