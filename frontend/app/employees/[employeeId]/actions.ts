@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { ApiError } from "@/lib/api/client";
 import { updateCompensation } from "@/lib/api/employees";
 import type { CompensationFormState } from "@/components/compensation/CompensationPanel";
+import { normalizeSalary } from "@/lib/validation/compensation";
 
 function fieldValue(formData: FormData, name: string): string {
   const value = formData.get(name);
@@ -17,7 +18,7 @@ export async function updateCompensationAction(
   formData: FormData,
 ): Promise<CompensationFormState> {
   const payload = {
-    annual_salary: fieldValue(formData, "annual_salary"),
+    annual_salary: normalizeSalary(fieldValue(formData, "annual_salary")),
     currency_code: fieldValue(formData, "currency_code").toUpperCase(),
   };
 
@@ -35,5 +36,5 @@ export async function updateCompensationAction(
 
   revalidatePath("/employees");
   revalidatePath(`/employees/${employeeId}`);
-  return { status: "success", message: "Compensation updated." };
+  return { status: "success", message: "Salary updated" };
 }
