@@ -59,17 +59,17 @@ Cross-country monetary metrics use the normalized analytics currency.
 
 Ask Compensation is a read-only natural-language interface over the data Compensation Hub actually stores.
 
-The product rule is:
+The product contract is:
 
 > If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
-The assistant is not limited to the metrics or views exposed by the Analytics page. It can combine safe read-only operations over employee, current-compensation, and exchange-rate data when those operations are required to answer the user's question.
+Answerability is determined by the available employee, current-compensation, and FX data, not by a fixed catalog of supported question phrases.
 
-Follow-up questions can use a bounded history of prior validated intent so the HR Manager can refine a question without restating its full context.
+The language model interprets the question into a constrained read-only query plan. The application validates that plan and constructs the executable database query. PostgreSQL and deterministic application logic produce the authoritative result.
 
-The language model interprets language and proposes a structured read-only program. Application code validates that program, constructs the allowed SQLAlchemy operations, and uses PostgreSQL plus deterministic application calculations for the authoritative result.
+Ask Compensation supports contextual follow-up questions by carrying forward bounded prior validated query intent. It does not replay employee result rows or salary values to the model as conversation memory.
 
-Ask Compensation cannot mutate data, make salary recommendations, infer fields that are not stored, or execute arbitrary model-generated SQL.
+The capability remains read-only. It cannot update employee or compensation data, make salary recommendations, or execute arbitrary model-generated SQL.
 
 ## Deliberate Non-Goals
 
