@@ -132,9 +132,11 @@ Aggregations execute in PostgreSQL rather than loading the full employee dataset
 
 ### Ask Compensation
 
-Responsible for converting supported natural-language questions into constrained analytics operations.
+Responsible for converting natural-language questions into validated read-only operations over data Compensation Hub actually stores.
 
-It does not own compensation calculations. Validated plans are executed through the same analytics capability used by the rest of the application, so natural-language answers and analytics views share one source of truth.
+The planner can express aggregates, employee lookup and ranking, distinct stored values, percentages, comparisons, currency conversion, and bounded conversational follow-ups. Application code owns the executable query construction; the model never emits SQL that is sent to PostgreSQL.
+
+Ask Compensation and the deterministic Analytics pages share the same employee, compensation, FX, and normalization semantics even when Ask Compensation needs a query shape that the dashboard does not expose.
 
 ---
 
@@ -228,78 +230,66 @@ The backend validates the salary amount and currency before persistence.
 
 ### Analytics
 
-The analytics endpoints expose the same analytics service used by Ask Compensation. There is no separate calculation path for natural-language answers.
+The analytics endpoints expose the fixed overview and breakdown capabilities used by the deterministic Analytics workspace. Ask Compensation uses the same database models and normalization rule, but can construct additional validated read-only query shapes such as median, employee ranking, percentages, and comparisons.
 
 ---
 
 ## Ask Compensation
 
-Natural-language analytics follows a constrained flow:
+Natural-language questions follow a constrained, read-only flow:
 
 ```text
-HR question
-    |
-    v
+Current question
+      +
+prior validated plans
+      |
+      v
 Gemini
-    |
-    v
-Structured Query Plan
-    |
-    v
-Pydantic Validation
-    |
-    v
-Analytics Service
-    |
-    v
-SQLAlchemy
-    |
-    v
-PostgreSQL
-    |
-    v
-Exact Result
+      |
+      v
+Structured read-only plan
+      |
+      v
+Pydantic validation
+      |
+      v
+SQLAlchemy query construction
+      |
+      v
+PostgreSQL / deterministic calculation
+      |
+      v
+Grounded result
 ```
 
-A plan can contain supported concepts such as:
+The planner receives schema vocabulary derived from the database and, for follow-up questions, at most six prior user questions with their already validated plans. It does not receive previous result rows or salary values as conversation memory.
 
-```text
-metric
-filters
-group_by
-sort
-limit
-```
+The plan supports bounded operations such as:
 
-Supported metrics include:
+- count, total payroll, average, minimum, maximum, and median,
+- filters over country, department, job title, currency, employee code, name, normalized salary, and compensation presence,
+- grouping, sorting, and result limits,
+- employee lookup and ranking,
+- distinct stored values,
+- percentages and direct comparisons,
+- conversion of monetary results to a currency present in the seeded FX table.
 
-```text
-employee_count
-average_salary
-total_payroll
-```
+This allows questions such as "Who are the five highest-paid Engineering employees in India?", "What percentage of employees are in Engineering?", or the follow-up "Convert that to INR" when the preceding validated plan establishes what "that" means.
 
-Supported dimensions include:
-
-```text
-country
-department
-job_title
-```
-
-The model is responsible for language interpretation only.
-
-It:
+The model is responsible for language interpretation only. It:
 
 - has no database credentials,
 - does not generate executable SQL,
 - cannot perform writes,
 - does not calculate authoritative compensation values,
-- does not receive the complete employee dataset.
+- does not receive the complete employee dataset,
+- cannot invent a field that is absent from the product data.
 
-The backend validates every generated plan before execution. Unsupported questions are rejected rather than approximated.
+The backend validates both the shape of the plan and referenced dimension/currency values before execution. SQLAlchemy constructs the executable query from approved operations.
 
-Provider-specific code is isolated behind a small planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
+When a question requires unavailable data, the response explains the missing field or boundary instead of approximating. For example, gender-filtered questions remain unanswerable because gender is not stored.
+
+RAG and a vector database are not part of this path because the source of truth is structured relational data. Provider-specific code remains isolated behind the planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
 
 ---
 
@@ -371,7 +361,8 @@ The final application shell keeps the primary product areas available while pres
 - Analytics dimension, measure, and filter state are URL-addressable.
 - Ask Compensation is available across primary pages.
 - The assistant remains beside the page on wide screens and uses an overlay presentation at narrower widths.
-- Supported Ask Compensation results can link into the corresponding Analytics view.
+- Ask Compensation preserves validated intent across a bounded number of turns for contextual follow-ups.
+- Results that map directly to the fixed Analytics workspace can link into the corresponding Analytics view.
 
 These are presentation choices; product rules and authoritative calculations remain in the backend.
 
