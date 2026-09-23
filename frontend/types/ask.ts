@@ -1,30 +1,60 @@
 import type { GroupBy } from "./analytics";
 
-export type AskMetric = "employee_count" | "average_salary" | "total_payroll";
+/**
+ * The validated read-only query the backend ran. The frontend never interprets it; it is only
+ * sent back with follow-up questions so the planner can refine the previous question.
+ */
+export type AskQuery = Record<string, unknown>;
 
-export interface QueryPlan {
-  metric: AskMetric;
-  filters: {
-    country: string | null;
-    department: string | null;
-    job_title: string | null;
-  };
-  group_by: GroupBy | null;
-  sort: "asc" | "desc" | null;
-  limit: number | null;
+export interface AskTurn {
+  question: string;
+  query: AskQuery;
 }
 
-export interface AskResultRow {
-  key: string | null;
-  employee_count: number;
-  total_payroll_usd: string;
-  average_salary_usd: string | null;
+export type ResultColumnType = "text" | "count" | "money" | "percent" | "number";
+
+export interface ResultColumn {
+  key: string;
+  label: string;
+  type: ResultColumnType;
+  /** Currency of every amount in a money column. */
+  currency: string | null;
+  /** For per-employee local salaries: the column holding each row's currency. */
+  currency_key: string | null;
+}
+
+/** Exact decimals arrive as strings, counts as numbers, and missing values as null. */
+export type ResultValue = string | number | null;
+
+export interface ResultRow {
+  values: ResultValue[];
+  employee_id: number | null;
+}
+
+export interface AskResult {
+  kind: "scalar" | "table";
+  columns: ResultColumn[];
+  rows: ResultRow[];
+  /** The column holding the headline figure; null for plain employee lists. */
+  primary: string | null;
+  total_rows: number;
+}
+
+export interface AskAnalyticsView {
+  group_by: GroupBy | null;
+  metric: "headcount" | "payroll" | "average";
+  country: string | null;
+  department: string | null;
+  job_title: string | null;
 }
 
 export interface AskResponse {
-  status: "answered" | "unsupported";
+  status: "answered" | "missing_data" | "unsupported";
   question: string;
   answer: string;
-  plan: QueryPlan | null;
-  result: { currency: "USD"; rows: AskResultRow[] } | null;
+  interpretation: string | null;
+  missing: string[];
+  query: AskQuery | null;
+  result: AskResult | null;
+  analytics_view: AskAnalyticsView | null;
 }

@@ -62,7 +62,7 @@ describe("AppShell", () => {
     act(() => openAskCompensation("What is the total payroll in Germany?"));
 
     expect(screen.getByRole("dialog", { name: "Ask Compensation" })).toBeInTheDocument();
-    await waitFor(() => expect(action).toHaveBeenCalledWith("What is the total payroll in Germany?"));
+    await waitFor(() => expect(action).toHaveBeenCalledWith("What is the total payroll in Germany?", []));
     expect(await screen.findByText("Ask Compensation is unavailable")).toBeInTheDocument();
   });
 });

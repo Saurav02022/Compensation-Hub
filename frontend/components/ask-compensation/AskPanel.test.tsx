@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -7,45 +7,98 @@ import type { AskResponse } from "@/types/ask";
 import { AskPanel, type AskConversation } from "./AskPanel";
 import type { AskExchange } from "./types";
 
-const grouped: AskResponse = {
+const share: AskResponse = {
   status: "answered",
-  question: "Compare average salary by department.",
-  answer: "Average annual salary by department across the organization: Engineering: USD 114,228.50.",
-  plan: {
-    metric: "average_salary",
-    filters: { country: null, department: null, job_title: null },
-    group_by: "department",
-    sort: "desc",
-    limit: null,
-  },
+  question: "What percentage of Engineering employees are in India?",
+  answer: "Employees (country is India) as % of Employees: 18.86%; Employees (country is India): 656; Employees: 3,478.",
+  interpretation: "Employees (country is India); Employees; Employees (country is India) as % of Employees · where department is Engineering",
+  missing: [],
+  query: { kind: "aggregate" },
   result: {
-    currency: "USD",
-    rows: [
-      { key: "Engineering", employee_count: 3478, total_payroll_usd: "397287000.00", average_salary_usd: "114228.50" },
-      { key: "Sales", employee_count: 1512, total_payroll_usd: "113502000.00", average_salary_usd: "75067.60" },
+    kind: "scalar",
+    columns: [
+      { key: "india", label: "Employees (country is India)", type: "count", currency: null, currency_key: null },
+      { key: "all", label: "Employees", type: "count", currency: null, currency_key: null },
+      { key: "share", label: "Employees (country is India) as % of Employees", type: "percent", currency: null, currency_key: null },
     ],
+    rows: [{ values: [656, 3478, "18.86"], employee_id: null }],
+    primary: "share",
+    total_rows: 1,
   },
+  analytics_view: null,
 };
 
-const single: AskResponse = {
+const payroll: AskResponse = {
   status: "answered",
-  question: "How many Engineering employees are based in India?",
-  answer: "Employee count for country India, department Engineering: 656.",
-  plan: {
-    metric: "employee_count",
-    filters: { country: "India", department: "Engineering", job_title: null },
-    group_by: null,
-    sort: null,
-    limit: null,
-  },
+  question: "Total payroll in Germany?",
+  answer: "Total salary: USD 97,512,340.00. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Total salary · where country is Germany · amounts in USD",
+  missing: [],
+  query: { kind: "aggregate" },
   result: {
-    currency: "USD",
-    rows: [{ key: null, employee_count: 656, total_payroll_usd: "29849880.00", average_salary_usd: "45503.00" }],
+    kind: "scalar",
+    columns: [{ key: "payroll", label: "Total salary", type: "money", currency: "USD", currency_key: null }],
+    rows: [{ values: ["97512340.00"], employee_id: null }],
+    primary: "payroll",
+    total_rows: 1,
   },
+  analytics_view: { group_by: null, metric: "payroll", country: "Germany", department: null, job_title: null },
+};
+
+const topEarners: AskResponse = {
+  status: "answered",
+  question: "Who are the highest-paid employees in Germany?",
+  answer: "Showing the first 2 of 1,003 employees. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Employees, showing name, local salary, salary currency, salary · where country is Germany",
+  missing: [],
+  query: { kind: "rows" },
+  result: {
+    kind: "table",
+    columns: [
+      { key: "full_name", label: "Name", type: "text", currency: null, currency_key: null },
+      { key: "local_salary", label: "Local salary", type: "money", currency: null, currency_key: "currency" },
+      { key: "currency", label: "Salary currency", type: "text", currency: null, currency_key: null },
+      { key: "salary", label: "Salary", type: "money", currency: "USD", currency_key: null },
+    ],
+    rows: [
+      { values: ["Mia Weber", "231500.00", "EUR", "250020.00"], employee_id: 42 },
+      { values: ["Jonas Fischer", "229000.00", "EUR", "247320.00"], employee_id: 7 },
+    ],
+    primary: null,
+    total_rows: 1003,
+  },
+  analytics_view: null,
+};
+
+const byDepartment: AskResponse = {
+  status: "answered",
+  question: "Payroll by department",
+  answer: "2 departments. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Total salary by department · amounts in USD",
+  missing: [],
+  query: { kind: "aggregate" },
+  result: {
+    kind: "table",
+    columns: [
+      { key: "department", label: "Department", type: "text", currency: null, currency_key: null },
+      { key: "payroll", label: "Total salary", type: "money", currency: "USD", currency_key: null },
+    ],
+    rows: [
+      { values: ["Engineering", "397287000.00"], employee_id: null },
+      { values: ["Sales", "113502000.00"], employee_id: null },
+    ],
+    primary: "payroll",
+    total_rows: 2,
+  },
+  analytics_view: { group_by: "department", metric: "payroll", country: null, department: null, job_title: null },
 };
 
 function conversation(overrides: Partial<AskConversation> = {}): AskConversation {
   return { exchanges: [], pendingQuestion: null, pending: false, ask: vi.fn(() => true), reset: vi.fn(), ...overrides };
+}
+
+function answered(id: number, response: AskResponse): AskExchange {
+  return { id, question: response.question, outcome: { status: "answered", response } };
 }
 
 function renderPanel(options: { docked?: boolean; conversation?: AskConversation } = {}) {
@@ -57,7 +110,7 @@ function renderPanel(options: { docked?: boolean; conversation?: AskConversation
       docked={options.docked ?? false}
       onClose={onClose}
       conversation={value}
-      suggestions={["Compare average salary by department."]}
+      suggestions={["Which department has the largest payroll?"]}
       inputRef={createRef<HTMLTextAreaElement>()}
     />,
   );
@@ -88,8 +141,8 @@ describe("AskPanel", () => {
   it("asks a suggested question, and a typed one with Enter", async () => {
     const { conversation: value } = renderPanel();
 
-    await userEvent.click(screen.getByRole("button", { name: "Compare average salary by department." }));
-    expect(value.ask).toHaveBeenCalledWith("Compare average salary by department.");
+    await userEvent.click(screen.getByRole("button", { name: "Which department has the largest payroll?" }));
+    expect(value.ask).toHaveBeenCalledWith("Which department has the largest payroll?");
 
     expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: "Question" }), "How many employees are in India?{Enter}");
@@ -103,43 +156,72 @@ describe("AskPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Working out the answer");
   });
 
-  it("presents single and grouped answers with a plain reading and a link into Analytics", () => {
-    const exchanges: AskExchange[] = [
-      { id: 1, question: single.question, outcome: { status: "answered", response: single } },
-      { id: 2, question: grouped.question, outcome: { status: "answered", response: grouped } },
-    ];
-    renderPanel({ conversation: conversation({ exchanges }) });
+  it("renders a scalar answer from its columns, headline first, with the reading of the query", () => {
+    renderPanel({ conversation: conversation({ exchanges: [answered(1, share), answered(2, payroll)] }) });
 
-    expect(screen.getByText("656")).toBeInTheDocument();
-    expect(screen.getByText(single.answer)).toBeInTheDocument();
-    expect(screen.getByText("Read as: Employee count, for India, Engineering")).toBeInTheDocument();
-    expect(screen.getByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
-    expect(screen.getByText("114,229")).toBeInTheDocument();
+    const [shareAnswer, payrollAnswer] = screen.getAllByRole("article");
+    expect(within(shareAnswer).getByText("18.86%")).toBeInTheDocument();
+    expect(within(shareAnswer).getByText("656")).toBeInTheDocument();
+    expect(within(shareAnswer).getByText("3,478")).toBeInTheDocument();
+    expect(within(shareAnswer).getByText(/^Read as: /)).toHaveTextContent("where department is Engineering");
+    expect(within(shareAnswer).queryByRole("link", { name: /Open in Analytics/ })).not.toBeInTheDocument();
 
-    const links = screen.getAllByRole("link", { name: /Open in Analytics/ });
-    expect(links[0]).toHaveAttribute("href", "/analytics?country=India&department=Engineering&metric=headcount");
-    expect(links[1]).toHaveAttribute("href", "/analytics?by=department&metric=average");
+    expect(within(payrollAnswer).getByText("97,512,340.00")).toBeInTheDocument();
+    expect(within(payrollAnswer).getByRole("link", { name: /Open in Analytics/ })).toHaveAttribute(
+      "href",
+      "/analytics?country=Germany",
+    );
   });
 
-  it("distinguishes unsupported questions, an unavailable provider, and errors that can be retried", async () => {
+  it("renders employee rows with local currency inline and links to each employee", () => {
+    renderPanel({ conversation: conversation({ exchanges: [answered(1, topEarners)] }) });
+
+    const table = screen.getByRole("table");
+    expect(within(table).getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Name",
+      "Local salary",
+      "Salary (USD)",
+    ]);
+    expect(within(table).getByRole("link", { name: "Mia Weber" })).toHaveAttribute("href", "/employees/42");
+    expect(within(table).getByText("EUR 231,500.00")).toBeInTheDocument();
+    expect(within(table).getByText("250,020.00")).toBeInTheDocument();
+    expect(screen.getByText("Showing the first 2 of 1,003 employees. Amounts are in USD at the fixed exchange rates.")).toBeInTheDocument();
+  });
+
+  it("renders grouped results with bars and a link to the matching Analytics view", () => {
+    renderPanel({ conversation: conversation({ exchanges: [answered(1, byDepartment)] }) });
+
+    expect(screen.getByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
+    expect(screen.getByText("397,287,000.00")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open in Analytics/ })).toHaveAttribute("href", "/analytics?by=department");
+  });
+
+  it("distinguishes missing data, unsupported questions, an unavailable provider, and retryable errors", async () => {
+    const missing: AskResponse = {
+      status: "missing_data",
+      question: "How many male engineers are in India?",
+      answer: "This needs data Compensation Hub does not store: gender.",
+      interpretation: null,
+      missing: ["gender"],
+      query: null,
+      result: null,
+      analytics_view: null,
+    };
+    const unsupported: AskResponse = { ...missing, status: "unsupported", question: "Who deserves a raise?", answer: "Salary recommendations are not made.", missing: [] };
     const value = conversation({
       exchanges: [
-        {
-          id: 1,
-          question: "Who deserves a raise?",
-          outcome: {
-            status: "answered",
-            response: { status: "unsupported", question: "Who deserves a raise?", answer: "Salary recommendations are not supported.", plan: null, result: null },
-          },
-        },
-        { id: 2, question: "How many employees?", outcome: { status: "unavailable", message: "Provider is down." } },
-        { id: 3, question: "Average in Sales?", outcome: { status: "error", message: "The question could not be sent." } },
+        answered(1, missing),
+        answered(2, unsupported),
+        { id: 3, question: "How many employees?", outcome: { status: "unavailable", message: "Provider is down." } },
+        { id: 4, question: "Average in Sales?", outcome: { status: "error", message: "The question could not be sent." } },
       ],
     });
     renderPanel({ conversation: value });
 
+    expect(screen.getByText("Not in the data")).toBeInTheDocument();
+    expect(screen.getByText("This needs data Compensation Hub does not store: gender.")).toBeInTheDocument();
     expect(screen.getByText("Can't answer this reliably")).toBeInTheDocument();
-    expect(screen.getByText("Salary recommendations are not supported.")).toBeInTheDocument();
+    expect(screen.getByText("Salary recommendations are not made.")).toBeInTheDocument();
     const alerts = screen.getAllByRole("alert");
     expect(alerts[0]).toHaveTextContent("Ask Compensation is unavailable");
     expect(alerts[0]).toHaveTextContent("The directory, salary updates, and analytics keep working.");
