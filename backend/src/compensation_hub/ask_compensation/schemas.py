@@ -3,177 +3,203 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-PlanKind = Literal["aggregate", "employees", "values", "share", "compare"]
-Metric = Literal[
-    "employee_count",
-    "average_salary",
-    "total_payroll",
-    "minimum_salary",
-    "maximum_salary",
-    "median_salary",
+DataField = Literal[
+    "employee_code",
+    "full_name",
+    "country",
+    "department",
+    "job_title",
+    "annual_salary",
+    "currency_code",
+    "salary_usd",
+    "rate_to_usd",
+    "has_compensation",
 ]
-Dimension = Literal["country", "department", "job_title", "currency_code"]
+FilterOperator = Literal[
+    "eq",
+    "neq",
+    "in",
+    "not_in",
+    "contains",
+    "starts_with",
+    "ends_with",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "is_null",
+    "not_null",
+]
+AggregateFunction = Literal[
+    "count",
+    "count_distinct",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "median",
+    "stddev",
+    "variance",
+    "percentile",
+]
 SortDirection = Literal["asc", "desc"]
-EmployeeSort = Literal["full_name", "employee_code", "salary_usd", "annual_salary"]
-ComparisonOperation = Literal["difference", "percent_difference", "ratio"]
+CalculationOperator = Literal[
+    "add",
+    "subtract",
+    "multiply",
+    "divide",
+    "percentage",
+    "percent_difference",
+    "ratio",
+]
+ResultFormat = Literal["text", "number", "count", "currency", "percent"]
 
-FilterValue = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+Identifier = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z][A-Za-z0-9_]{0,49}$"),
+]
+QuestionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
 CurrencyCode = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z]{3}$")
 ]
 
 
-class QueryFilters(BaseModel):
-    """Read-only predicates that can be translated into SQLAlchemy expressions."""
+class FilterClause(BaseModel):
+    """One validated predicate over the read-only employee-compensation dataset."""
 
     model_config = ConfigDict(extra="forbid")
 
-    countries: list[FilterValue] = Field(default_factory=list, max_length=20)
-    departments: list[FilterValue] = Field(default_factory=list, max_length=20)
-    job_titles: list[FilterValue] = Field(default_factory=list, max_length=20)
-    currency_codes: list[CurrencyCode] = Field(default_factory=list, max_length=20)
-    employee_code: FilterValue | None = None
-    name_contains: FilterValue | None = None
-    salary_usd_min: Decimal | None = Field(default=None, ge=0)
-    salary_usd_max: Decimal | None = Field(default=None, ge=0)
-    has_compensation: bool | None = None
+    field: DataField
+    op: FilterOperator
+    values: Annotated[list[str], Field(max_length=20)] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def salary_range_is_ordered(self) -> "QueryFilters":
-        if (
-            self.salary_usd_min is not None
-            and self.salary_usd_max is not None
-            and self.salary_usd_min > self.salary_usd_max
-        ):
-            raise ValueError("salary_usd_min cannot exceed salary_usd_max")
+    def value_shape_matches_operator(self) -> "FilterClause":
+        if self.op in ("is_null", "not_null"):
+            if self.values:
+                raise ValueError(f"{self.op} does not accept values")
+            return self
+        if not self.values:
+            raise ValueError(f"{self.op} requires at least one value")
+        if self.op not in ("in", "not_in") and len(self.values) != 1:
+            raise ValueError(f"{self.op} accepts exactly one value")
         return self
 
 
-class QueryPlan(BaseModel):
-    """A constrained, read-only request over data Compensation Hub actually stores."""
+class Projection(BaseModel):
+    """A field or aggregate returned by one query."""
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: PlanKind
-    metric: Metric | None = None
-    filters: QueryFilters = Field(default_factory=QueryFilters)
-    denominator_filters: QueryFilters | None = None
-    compare_filters: QueryFilters | None = None
-    group_by: Dimension | None = None
-    field: Dimension | None = None
-    sort: SortDirection | None = None
-    sort_by: EmployeeSort | None = None
-    limit: Annotated[int, Field(ge=1, le=100)] | None = None
-    target_currency: CurrencyCode | None = None
-    comparison: ComparisonOperation | None = None
+    alias: Identifier
+    field: DataField | None = None
+    aggregate: AggregateFunction | None = None
+    percentile: Decimal | None = Field(default=None, gt=0, lt=1)
 
     @model_validator(mode="after")
-    def shape_matches_kind(self) -> "QueryPlan":
-        if self.kind == "aggregate":
-            if self.metric is None:
-                raise ValueError("aggregate plans require metric")
-            if any(
-                value is not None
-                for value in (
-                    self.denominator_filters,
-                    self.compare_filters,
-                    self.field,
-                    self.sort_by,
-                    self.comparison,
-                )
-            ):
-                raise ValueError("aggregate plan contains fields for another plan kind")
-            if self.group_by is None and (self.sort is not None or self.limit is not None):
-                raise ValueError("aggregate sort and limit require group_by")
-            if self.metric == "employee_count" and self.target_currency is not None:
-                raise ValueError("employee_count cannot have a target currency")
-            return self
-
-        if self.kind == "employees":
-            if any(
-                value is not None
-                for value in (
-                    self.metric,
-                    self.denominator_filters,
-                    self.compare_filters,
-                    self.group_by,
-                    self.field,
-                    self.comparison,
-                )
-            ):
-                raise ValueError("employees plan contains fields for another plan kind")
-            return self
-
-        if self.kind == "values":
+    def projection_is_well_formed(self) -> "Projection":
+        if self.aggregate is None:
             if self.field is None:
-                raise ValueError("values plans require field")
-            if any(
-                value is not None
-                for value in (
-                    self.metric,
-                    self.denominator_filters,
-                    self.compare_filters,
-                    self.group_by,
-                    self.sort_by,
-                    self.target_currency,
-                    self.comparison,
-                )
-            ):
-                raise ValueError("values plan contains fields for another plan kind")
+                raise ValueError("a non-aggregate projection requires field")
+            if self.percentile is not None:
+                raise ValueError("percentile is only valid with percentile aggregation")
             return self
 
-        if self.kind == "share":
-            if self.metric not in ("employee_count", "total_payroll"):
-                raise ValueError("share plans support employee_count or total_payroll")
-            if self.denominator_filters is None:
-                raise ValueError("share plans require denominator_filters")
-            if any(
-                value is not None
-                for value in (
-                    self.compare_filters,
-                    self.group_by,
-                    self.field,
-                    self.sort,
-                    self.sort_by,
-                    self.limit,
-                    self.target_currency,
-                    self.comparison,
-                )
-            ):
-                raise ValueError("share plan contains fields for another plan kind")
+        if self.aggregate == "count":
+            if self.percentile is not None:
+                raise ValueError("count does not accept percentile")
             return self
 
-        if self.kind == "compare":
-            if self.metric is None:
-                raise ValueError("compare plans require metric")
-            if self.compare_filters is None:
-                raise ValueError("compare plans require compare_filters")
-            if self.comparison is None:
-                raise ValueError("compare plans require comparison")
-            if any(
-                value is not None
-                for value in (
-                    self.denominator_filters,
-                    self.group_by,
-                    self.field,
-                    self.sort,
-                    self.sort_by,
-                    self.limit,
-                )
-            ):
-                raise ValueError("compare plan contains fields for another plan kind")
-            if self.metric == "employee_count" and self.target_currency is not None:
-                raise ValueError("employee_count cannot have a target currency")
-            return self
+        if self.field is None:
+            raise ValueError(f"{self.aggregate} requires field")
 
-        raise ValueError("unknown plan kind")
+        if self.aggregate == "percentile":
+            if self.percentile is None:
+                raise ValueError("percentile aggregation requires percentile")
+        elif self.percentile is not None:
+            raise ValueError("percentile parameter is only valid for percentile aggregation")
+        return self
+
+
+class OrderClause(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: Identifier
+    direction: SortDirection = "asc"
+
+
+class DataQuery(BaseModel):
+    """One bounded SELECT-like operation expressed without SQL."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Identifier
+    select: Annotated[list[Projection], Field(min_length=1, max_length=10)]
+    filters: Annotated[list[FilterClause], Field(max_length=20)] = Field(default_factory=list)
+    group_by: Annotated[list[DataField], Field(max_length=4)] = Field(default_factory=list)
+    order_by: Annotated[list[OrderClause], Field(max_length=4)] = Field(default_factory=list)
+    distinct: bool = False
+    limit: Annotated[int, Field(ge=1, le=100)] | None = None
+    target_currency: CurrencyCode | None = None
+
+    @model_validator(mode="after")
+    def query_shape_is_consistent(self) -> "DataQuery":
+        aliases = [projection.alias for projection in self.select]
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("projection aliases must be unique")
+        if len(self.group_by) != len(set(self.group_by)):
+            raise ValueError("group_by fields must be unique")
+        if self.distinct and any(projection.aggregate is not None for projection in self.select):
+            raise ValueError("distinct cannot be combined with aggregate projections")
+        return self
+
+
+class ResultRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: Identifier
+    column: Identifier
+
+
+class Calculation(BaseModel):
+    """Optional deterministic arithmetic over scalar query results."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: CalculationOperator
+    left: ResultRef
+    right: ResultRef
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+    format: ResultFormat = "number"
+
+
+class QueryProgram(BaseModel):
+    """A small read-only program that can derive an answer from available product data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    queries: Annotated[list[DataQuery], Field(min_length=1, max_length=4)]
+    calculation: Calculation | None = None
+
+    @model_validator(mode="after")
+    def program_references_existing_queries(self) -> "QueryProgram":
+        names = [query.name for query in self.queries]
+        if len(names) != len(set(names)):
+            raise ValueError("query names must be unique")
+
+        if self.calculation is not None:
+            known = set(names)
+            for ref in (self.calculation.left, self.calculation.right):
+                if ref.query not in known:
+                    raise ValueError(f"calculation references unknown query {ref.query}")
+        return self
 
 
 class PlannedResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["plan"]
-    plan: QueryPlan
+    plan: QueryProgram
 
 
 class UnsupportedResponse(BaseModel):
@@ -187,22 +213,19 @@ PlannerResponse = Annotated[PlannedResponse | UnsupportedResponse, Field(discrim
 
 
 class AskHistoryItem(BaseModel):
-    """Prior intent only; result rows and salary values are never sent back to the planner."""
+    """Prior validated intent; query results and salary values are not sent back to the model."""
 
     model_config = ConfigDict(extra="forbid")
 
-    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
-    plan: QueryPlan
+    question: QuestionText
+    plan: QueryProgram
 
 
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+    question: QuestionText
     history: Annotated[list[AskHistoryItem], Field(max_length=6)] = Field(default_factory=list)
-
-
-ResultFormat = Literal["text", "count", "currency", "percent"]
 
 
 class AskResultColumn(BaseModel):
@@ -212,7 +235,7 @@ class AskResultColumn(BaseModel):
 
 
 class AskResult(BaseModel):
-    kind: Literal["scalar", "table", "employees"]
+    kind: Literal["scalar", "table"]
     currency: CurrencyCode | None = None
     columns: list[AskResultColumn]
     rows: list[dict[str, str | int | None]]
@@ -223,6 +246,6 @@ class AskResponse(BaseModel):
     question: str
     answer: str
     interpretation: str | None = None
-    plan: QueryPlan | None = None
+    plan: QueryProgram | None = None
     result: AskResult | None = None
     analytics_path: str | None = None
