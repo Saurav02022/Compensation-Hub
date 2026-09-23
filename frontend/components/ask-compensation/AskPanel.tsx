@@ -119,7 +119,7 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
               Ask Compensation
             </h2>
             <p id={descriptionId} className="truncate text-xs text-ink-muted">
-              Answers from the same figures as Analytics
+              Answers grounded in Compensation Hub data
             </p>
           </div>
           <div className="flex items-center gap-1">
