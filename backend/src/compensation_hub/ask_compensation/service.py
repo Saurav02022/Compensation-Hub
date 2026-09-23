@@ -1,12 +1,12 @@
 import json
 import logging
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
 from urllib.parse import urlencode
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import Select, func, select
+from sqlalchemy import ColumnElement, Select, case, distinct, func, select
 from sqlalchemy.orm import Session
 
 from compensation_hub.analytics.service import SALARY_USD
@@ -15,10 +15,15 @@ from compensation_hub.ask_compensation.schemas import (
     AskHistoryItem,
     AskResult,
     AskResultColumn,
-    Metric,
+    Calculation,
+    DataField,
+    DataQuery,
+    FilterClause,
     PlannerResponse,
-    QueryFilters,
-    QueryPlan,
+    Projection,
+    QueryProgram,
+    ResultFormat,
+    ResultRef,
 )
 from compensation_hub.db.models import Compensation, Employee, FxRate
 from compensation_hub.employees.service import list_filter_options
@@ -28,38 +33,60 @@ logger = logging.getLogger(__name__)
 PLANNER_RESPONSE = TypeAdapter[PlannerResponse](PlannerResponse)
 CENTS = Decimal("0.01")
 PERCENT = Decimal("0.01")
-MONETARY_METRICS: set[Metric] = {
-    "average_salary",
-    "total_payroll",
-    "minimum_salary",
-    "maximum_salary",
-    "median_salary",
+DEFAULT_RESULT_LIMIT = 25
+UNSUPPORTED_PREFIX = "I can't answer that from the data available in Compensation Hub."
+
+
+class InvalidPlanError(Exception):
+    """A generated program is valid JSON but cannot be executed safely or coherently."""
+
+
+@dataclass(frozen=True)
+class FieldInfo:
+    expression: ColumnElement[Any]
+    kind: Literal["text", "number", "boolean"]
+    label: str
+    default_format: ResultFormat
+    monetary_usd: bool = False
+
+
+HAS_COMPENSATION = case((Compensation.employee_id.is_not(None), True), else_=False)
+
+FIELD_INFO: dict[DataField, FieldInfo] = {
+    "employee_code": FieldInfo(Employee.employee_code, "text", "Employee code", "text"),
+    "full_name": FieldInfo(Employee.full_name, "text", "Employee", "text"),
+    "country": FieldInfo(Employee.country, "text", "Country", "text"),
+    "department": FieldInfo(Employee.department, "text", "Department", "text"),
+    "job_title": FieldInfo(Employee.job_title, "text", "Job title", "text"),
+    "annual_salary": FieldInfo(Compensation.annual_salary, "number", "Annual salary", "number"),
+    "currency_code": FieldInfo(Compensation.currency_code, "text", "Currency", "text"),
+    "salary_usd": FieldInfo(SALARY_USD, "number", "Salary", "currency", monetary_usd=True),
+    "rate_to_usd": FieldInfo(FxRate.rate_to_usd, "number", "Rate to USD", "number"),
+    "has_compensation": FieldInfo(HAS_COMPENSATION, "boolean", "Has compensation", "text"),
 }
-METRIC_LABELS: dict[Metric, str] = {
-    "employee_count": "Employee count",
-    "average_salary": "Average annual salary",
-    "total_payroll": "Total annual payroll",
-    "minimum_salary": "Minimum annual salary",
-    "maximum_salary": "Maximum annual salary",
-    "median_salary": "Median annual salary",
-}
-DIMENSION_LABELS = {
+
+CONTROLLED_FIELDS: dict[DataField, str] = {
     "country": "country",
     "department": "department",
     "job_title": "job title",
     "currency_code": "currency",
 }
-GROUP_COLUMNS = {
-    "country": Employee.country,
-    "department": Employee.department,
-    "job_title": Employee.job_title,
-    "currency_code": Compensation.currency_code,
-}
-UNSUPPORTED_PREFIX = "I can't answer that from the data available in Compensation Hub."
 
 
-class InvalidPlanError(Exception):
-    """The provider response could not be validated into a supported read-only query plan."""
+@dataclass(frozen=True)
+class ExecutedColumn:
+    key: str
+    label: str
+    format: ResultFormat
+    currency: str | None = None
+
+
+@dataclass(frozen=True)
+class ExecutedQuery:
+    name: str
+    columns: tuple[ExecutedColumn, ...]
+    raw_rows: tuple[dict[str, object], ...]
+    result: AskResult
 
 
 @dataclass(frozen=True)
@@ -67,7 +94,7 @@ class AskOutcome:
     status: Literal["answered", "unsupported"]
     answer: str
     interpretation: str | None = None
-    plan: QueryPlan | None = None
+    plan: QueryProgram | None = None
     result: AskResult | None = None
     analytics_path: str | None = None
 
@@ -121,36 +148,86 @@ def _planner_history(history: list[AskHistoryItem]) -> tuple[PlannerTurn, ...]:
     )
 
 
-def _plan_filters(plan: QueryPlan) -> list[QueryFilters]:
-    values = [plan.filters]
-    if plan.denominator_filters is not None:
-        values.append(plan.denominator_filters)
-    if plan.compare_filters is not None:
-        values.append(plan.compare_filters)
-    return values
+def _parse_decimal(value: str, *, field: DataField) -> Decimal:
+    try:
+        return Decimal(value)
+    except InvalidOperation as error:
+        raise InvalidPlanError(f"{field} requires a numeric filter value") from error
 
 
-def _validate_plan_values(plan: QueryPlan, context: PlannerContext) -> str | None:
-    known = {
-        "country": set(context.countries),
-        "department": set(context.departments),
-        "job title": set(context.job_titles),
-        "currency": set(context.currency_codes),
-    }
-    for filters in _plan_filters(plan):
-        checks = (
-            ("country", filters.countries, known["country"]),
-            ("department", filters.departments, known["department"]),
-            ("job title", filters.job_titles, known["job title"]),
-            ("currency", filters.currency_codes, known["currency"]),
-        )
-        for label, values, allowed in checks:
-            unknown = sorted({value for value in values if value not in allowed})
-            if unknown:
-                return f"No {label} value exists in the data for: {', '.join(unknown)}."
-    if plan.target_currency is not None and plan.target_currency not in known["currency"]:
-        return f"No exchange rate is configured for {plan.target_currency}."
-    return None
+def _parse_boolean(value: str, *, field: DataField) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "yes", "1"}:
+        return True
+    if normalized in {"false", "no", "0"}:
+        return False
+    raise InvalidPlanError(f"{field} requires a boolean filter value")
+
+
+def _typed_values(clause: FilterClause) -> list[str | Decimal | bool]:
+    info = FIELD_INFO[clause.field]
+    if info.kind == "number":
+        return [_parse_decimal(value, field=clause.field) for value in clause.values]
+    if info.kind == "boolean":
+        return [_parse_boolean(value, field=clause.field) for value in clause.values]
+    return list(clause.values)
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _apply_filter(statement: Select[Any], clause: FilterClause) -> Select[Any]:
+    info = FIELD_INFO[clause.field]
+    expression = info.expression
+
+    if clause.op in ("is_null", "not_null"):
+        if info.kind == "boolean":
+            raise InvalidPlanError(f"{clause.op} is not meaningful for {clause.field}")
+        predicate = expression.is_(None) if clause.op == "is_null" else expression.is_not(None)
+        return statement.where(predicate)
+
+    values = _typed_values(clause)
+
+    if clause.op in ("contains", "starts_with", "ends_with"):
+        if info.kind != "text":
+            raise InvalidPlanError(f"{clause.op} is only valid for text fields")
+        raw = str(values[0])
+        escaped = _escape_like(raw)
+        if clause.op == "contains":
+            pattern = f"%{escaped}%"
+        elif clause.op == "starts_with":
+            pattern = f"{escaped}%"
+        else:
+            pattern = f"%{escaped}"
+        return statement.where(expression.ilike(pattern, escape="\\"))
+
+    if clause.op in ("gt", "gte", "lt", "lte") and info.kind != "number":
+        raise InvalidPlanError(f"{clause.op} is only valid for numeric fields")
+
+    if clause.op == "eq":
+        return statement.where(expression == values[0])
+    if clause.op == "neq":
+        return statement.where(expression != values[0])
+    if clause.op == "in":
+        return statement.where(expression.in_(values))
+    if clause.op == "not_in":
+        return statement.where(expression.not_in(values))
+    if clause.op == "gt":
+        return statement.where(expression > values[0])
+    if clause.op == "gte":
+        return statement.where(expression >= values[0])
+    if clause.op == "lt":
+        return statement.where(expression < values[0])
+    if clause.op == "lte":
+        return statement.where(expression <= values[0])
+    raise InvalidPlanError(f"Unsupported filter operator {clause.op}")
+
+
+def _apply_filters(statement: Select[Any], filters: list[FilterClause]) -> Select[Any]:
+    for clause in filters:
+        statement = _apply_filter(statement, clause)
+    return statement
 
 
 def _base_select(*columns: Any) -> Select[Any]:
@@ -162,518 +239,504 @@ def _base_select(*columns: Any) -> Select[Any]:
     )
 
 
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def _aggregate_expression(projection: Projection) -> ColumnElement[Any]:
+    aggregate = projection.aggregate
+    if aggregate is None:
+        assert projection.field is not None
+        return FIELD_INFO[projection.field].expression
+
+    field_expression = (
+        Employee.id if projection.field is None else FIELD_INFO[projection.field].expression
+    )
+
+    if aggregate == "count":
+        return func.count(field_expression)
+    if aggregate == "count_distinct":
+        assert projection.field is not None
+        return func.count(distinct(field_expression))
+    if aggregate == "sum":
+        return func.sum(field_expression)
+    if aggregate == "avg":
+        return func.avg(field_expression)
+    if aggregate == "min":
+        return func.min(field_expression)
+    if aggregate == "max":
+        return func.max(field_expression)
+    if aggregate == "median":
+        return func.percentile_cont(Decimal("0.5")).within_group(field_expression)
+    if aggregate == "stddev":
+        return func.stddev_pop(field_expression)
+    if aggregate == "variance":
+        return func.var_pop(field_expression)
+    assert aggregate == "percentile"
+    assert projection.percentile is not None
+    return func.percentile_cont(projection.percentile).within_group(field_expression)
 
 
-def _apply_filters(statement: Select[Any], filters: QueryFilters) -> Select[Any]:
-    if filters.countries:
-        statement = statement.where(Employee.country.in_(filters.countries))
-    if filters.departments:
-        statement = statement.where(Employee.department.in_(filters.departments))
-    if filters.job_titles:
-        statement = statement.where(Employee.job_title.in_(filters.job_titles))
-    if filters.currency_codes:
-        statement = statement.where(Compensation.currency_code.in_(filters.currency_codes))
-    if filters.employee_code is not None:
-        statement = statement.where(Employee.employee_code == filters.employee_code)
-    if filters.name_contains is not None:
-        pattern = f"%{_escape_like(filters.name_contains)}%"
-        statement = statement.where(Employee.full_name.ilike(pattern, escape="\\"))
-    if filters.salary_usd_min is not None:
-        statement = statement.where(SALARY_USD >= filters.salary_usd_min)
-    if filters.salary_usd_max is not None:
-        statement = statement.where(SALARY_USD <= filters.salary_usd_max)
-    if filters.has_compensation is True:
-        statement = statement.where(Compensation.employee_id.is_not(None))
-    elif filters.has_compensation is False:
-        statement = statement.where(Compensation.employee_id.is_(None))
-    return statement
+def _projection_format(projection: Projection) -> ResultFormat:
+    if projection.aggregate in ("count", "count_distinct"):
+        return "count"
+    if projection.field is None:
+        return "number"
+    info = FIELD_INFO[projection.field]
+    if info.monetary_usd:
+        return "currency"
+    if projection.aggregate is not None and info.kind == "number":
+        return "number"
+    return info.default_format
 
 
-def _metric_expression(metric: Metric) -> Any:
-    if metric == "employee_count":
-        return func.count(Employee.id)
-    if metric == "total_payroll":
-        return func.coalesce(func.sum(SALARY_USD), 0)
-    if metric == "average_salary":
-        return func.avg(SALARY_USD)
-    if metric == "minimum_salary":
-        return func.min(SALARY_USD)
-    if metric == "maximum_salary":
-        return func.max(SALARY_USD)
-    return func.percentile_cont(0.5).within_group(SALARY_USD)
+def _projection_label(projection: Projection) -> str:
+    return projection.alias.replace("_", " ").strip().title()
+
+
+def _query_has_exact_single_currency(query: DataQuery) -> bool:
+    for clause in query.filters:
+        if clause.field != "currency_code":
+            continue
+        if clause.op == "eq" and len(clause.values) == 1:
+            return True
+        if clause.op == "in" and len(clause.values) == 1:
+            return True
+    return False
+
+
+def _validate_projection(projection: Projection, query: DataQuery) -> None:
+    if projection.aggregate is None:
+        return
+
+    if projection.aggregate == "count":
+        return
+    if projection.aggregate == "count_distinct":
+        if projection.field is None:
+            raise InvalidPlanError("count_distinct requires a field")
+        return
+
+    assert projection.field is not None
+    info = FIELD_INFO[projection.field]
+
+    if projection.aggregate in ("sum", "avg", "median", "stddev", "variance", "percentile"):
+        if info.kind != "number":
+            raise InvalidPlanError(
+                f"{projection.aggregate} is only valid for numeric fields"
+            )
+    elif projection.aggregate in ("min", "max") and info.kind == "boolean":
+        raise InvalidPlanError(f"{projection.aggregate} is not valid for boolean fields")
+
+    if projection.field == "annual_salary":
+        if "currency_code" not in query.group_by and not _query_has_exact_single_currency(query):
+            raise InvalidPlanError(
+                "annual_salary cannot be aggregated across currencies; use salary_usd or "
+                "filter/group by currency_code"
+            )
+
+
+def _validate_query(query: DataQuery) -> None:
+    for projection in query.select:
+        _validate_projection(projection, query)
+
+    aggregate_projections = [p for p in query.select if p.aggregate is not None]
+    plain_projections = [p for p in query.select if p.aggregate is None]
+
+    if query.group_by and not aggregate_projections:
+        raise InvalidPlanError("group_by requires at least one aggregate projection")
+
+    if aggregate_projections:
+        plain_fields = {p.field for p in plain_projections}
+        group_fields = set(query.group_by)
+        if plain_fields != group_fields:
+            raise InvalidPlanError(
+                "every non-aggregate selected field must appear in group_by, and every "
+                "group_by field must be selected"
+            )
+
+    aliases = {projection.alias for projection in query.select}
+    for order in query.order_by:
+        if order.key not in aliases:
+            raise InvalidPlanError(f"order_by key {order.key} is not a selected alias")
+
+    monetary = [projection for projection in query.select if projection.field == "salary_usd"]
+    if query.target_currency is not None and not monetary:
+        raise InvalidPlanError(
+            "target_currency requires at least one salary_usd projection"
+        )
+
+
+def _controlled_values(context: PlannerContext) -> dict[DataField, set[str]]:
+    return {
+        "country": set(context.countries),
+        "department": set(context.departments),
+        "job_title": set(context.job_titles),
+        "currency_code": set(context.currency_codes),
+    }
+
+
+def _validate_program_values(program: QueryProgram, context: PlannerContext) -> None:
+    known = _controlled_values(context)
+    currencies = set(context.currency_codes)
+
+    for query in program.queries:
+        if query.target_currency is not None and query.target_currency not in currencies:
+            raise InvalidPlanError(
+                f"No exchange rate is configured for {query.target_currency}"
+            )
+        for clause in query.filters:
+            if clause.field not in CONTROLLED_FIELDS:
+                continue
+            if clause.op not in ("eq", "neq", "in", "not_in"):
+                continue
+            unknown = sorted(
+                value for value in clause.values if value not in known[clause.field]
+            )
+            if unknown:
+                label = CONTROLLED_FIELDS[clause.field]
+                raise InvalidPlanError(
+                    f"No {label} value exists in the data for: {', '.join(unknown)}"
+                )
+
+
+def _currency_rate(session: Session, currency_code: str) -> Decimal:
+    if currency_code == "USD":
+        return Decimal("1")
+    value = session.scalar(
+        select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code)
+    )
+    if value is None:
+        raise InvalidPlanError(f"No exchange rate is configured for {currency_code}")
+    return Decimal(value)
 
 
 def _money(value: object) -> Decimal:
     return Decimal(str(value)).quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
-def _metric_scalar(session: Session, metric: Metric, filters: QueryFilters) -> Decimal | None:
-    value = session.execute(
-        _apply_filters(_base_select(_metric_expression(metric).label("value")), filters)
-    ).scalar_one()
-    if metric == "employee_count":
-        return Decimal(int(value))
-    return None if value is None else _money(value)
+def _convert_usd(value: object, rate_to_usd: Decimal) -> Decimal:
+    return (_money(value) / rate_to_usd).quantize(CENTS, rounding=ROUND_HALF_UP)
 
 
-def _currency_rate(session: Session, currency_code: str) -> Decimal:
-    value = session.scalar(select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code))
-    if value is None:
-        raise InvalidPlanError(f"No exchange rate is configured for {currency_code}")
-    return Decimal(value)
-
-
-def _converted(value_usd: Decimal, rate_to_usd: Decimal) -> Decimal:
-    return (value_usd / rate_to_usd).quantize(CENTS, rounding=ROUND_HALF_UP)
-
-
-def _metric_currency(session: Session, plan: QueryPlan) -> tuple[str | None, Decimal]:
-    if plan.metric not in MONETARY_METRICS:
-        return None, Decimal("1")
-    currency = plan.target_currency or "USD"
-    return currency, _currency_rate(session, currency)
-
-
-def _format_metric(metric: Metric, value: Decimal | None, currency: str | None) -> str:
-    if value is None:
-        return "not available"
-    if metric == "employee_count":
-        return f"{int(value):,}"
-    assert currency is not None
-    return f"{currency} {value:,.2f}"
-
-
-def _row_value(metric: Metric, value: Decimal | None) -> str | int | None:
+def _serialize_value(
+    value: object,
+    column: ExecutedColumn,
+    *,
+    rate_to_usd: Decimal,
+) -> str | int | None:
     if value is None:
         return None
-    if metric == "employee_count":
+    if column.format == "count":
         return int(value)
-    return f"{value:.2f}"
+    if column.format == "currency":
+        return f"{_convert_usd(value, rate_to_usd):.2f}"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    if isinstance(value, (int, float)):
+        return str(value)
+    return str(value)
 
 
-def _list_phrase(values: list[str]) -> str:
-    if len(values) == 1:
-        return values[0]
-    return ", ".join(values[:-1]) + f" or {values[-1]}"
+def _execute_query(session: Session, query: DataQuery) -> ExecutedQuery:
+    _validate_query(query)
 
+    selected: list[ColumnElement[Any]] = []
+    selected_by_alias: dict[str, ColumnElement[Any]] = {}
+    columns: list[ExecutedColumn] = []
 
-def _describe_filters(filters: QueryFilters) -> str:
-    parts: list[str] = []
-    if filters.countries:
-        parts.append(f"country {_list_phrase(filters.countries)}")
-    if filters.departments:
-        parts.append(f"department {_list_phrase(filters.departments)}")
-    if filters.job_titles:
-        parts.append(f"job title {_list_phrase(filters.job_titles)}")
-    if filters.currency_codes:
-        parts.append(f"currency {_list_phrase(filters.currency_codes)}")
-    if filters.employee_code is not None:
-        parts.append(f"employee code {filters.employee_code}")
-    if filters.name_contains is not None:
-        parts.append(f'name containing "{filters.name_contains}"')
-    if filters.salary_usd_min is not None:
-        parts.append(f"normalized salary at least USD {filters.salary_usd_min:,.2f}")
-    if filters.salary_usd_max is not None:
-        parts.append(f"normalized salary at most USD {filters.salary_usd_max:,.2f}")
-    if filters.has_compensation is True:
-        parts.append("with current compensation")
-    elif filters.has_compensation is False:
-        parts.append("without current compensation")
-    return ", ".join(parts) if parts else "the organization"
+    target_currency = query.target_currency or "USD"
+    rate_to_usd = _currency_rate(session, target_currency)
 
-
-def _interpretation(plan: QueryPlan) -> str:
-    if plan.kind == "aggregate":
-        assert plan.metric is not None
-        text = METRIC_LABELS[plan.metric]
-        if plan.group_by is not None:
-            text += f" by {DIMENSION_LABELS[plan.group_by]}"
-        text += f" for {_describe_filters(plan.filters)}"
-        if plan.target_currency is not None:
-            text += f", converted to {plan.target_currency}"
-        return text
-    if plan.kind == "employees":
-        text = f"Employees for {_describe_filters(plan.filters)}"
-        if plan.sort_by is not None:
-            text += f", sorted by {plan.sort_by.replace('_', ' ')}"
-        if plan.limit is not None:
-            text += f", first {plan.limit}"
-        if plan.target_currency is not None:
-            text += f", normalized salary in {plan.target_currency}"
-        return text
-    if plan.kind == "values":
-        assert plan.field is not None
-        scope = _describe_filters(plan.filters)
-        return f"Distinct {DIMENSION_LABELS[plan.field]} values for {scope}"
-    if plan.kind == "share":
-        assert plan.metric is not None and plan.denominator_filters is not None
-        return (
-            f"{METRIC_LABELS[plan.metric]} share for {_describe_filters(plan.filters)} "
-            f"within {_describe_filters(plan.denominator_filters)}"
+    for projection in query.select:
+        expression = _aggregate_expression(projection).label(projection.alias)
+        selected.append(expression)
+        selected_by_alias[projection.alias] = expression
+        column_format = _projection_format(projection)
+        columns.append(
+            ExecutedColumn(
+                key=projection.alias,
+                label=_projection_label(projection),
+                format=column_format,
+                currency=target_currency if column_format == "currency" else None,
+            )
         )
-    assert plan.metric is not None
-    assert plan.compare_filters is not None
-    assert plan.comparison is not None
-    return (
-        f"{plan.comparison.replace('_', ' ')} in {METRIC_LABELS[plan.metric].lower()} between "
-        f"{_describe_filters(plan.filters)} and {_describe_filters(plan.compare_filters)}"
-    )
 
+    statement = _apply_filters(_base_select(*selected), query.filters)
 
-def _analytics_path(plan: QueryPlan) -> str | None:
-    if plan.kind != "aggregate" or plan.metric not in (
-        "employee_count",
-        "average_salary",
-        "total_payroll",
-    ):
-        return None
-    if plan.group_by == "currency_code" or plan.target_currency not in (None, "USD"):
-        return None
-    filters = plan.filters
-    if any(
-        (
-            filters.currency_codes,
-            filters.employee_code is not None,
-            filters.name_contains is not None,
-            filters.salary_usd_min is not None,
-            filters.salary_usd_max is not None,
-            filters.has_compensation is not None,
+    if query.group_by:
+        statement = statement.group_by(
+            *(FIELD_INFO[field].expression for field in query.group_by)
         )
-    ):
-        return None
-    if any(
-        len(values) > 1 for values in (filters.countries, filters.departments, filters.job_titles)
-    ):
-        return None
-    params: dict[str, str] = {}
-    if filters.countries:
-        params["country"] = filters.countries[0]
-    if filters.departments:
-        params["department"] = filters.departments[0]
-    if filters.job_titles:
-        params["job_title"] = filters.job_titles[0]
-    if plan.group_by is not None:
-        params["by"] = plan.group_by
-    params["metric"] = {
-        "employee_count": "headcount",
-        "average_salary": "average",
-        "total_payroll": "payroll",
-    }[plan.metric]
-    return "/analytics?" + urlencode(params)
 
+    if query.distinct:
+        statement = statement.distinct()
 
-def _execute_aggregate(session: Session, plan: QueryPlan) -> AskOutcome:
-    assert plan.metric is not None
-    expression = _metric_expression(plan.metric).label("value")
-    currency, rate = _metric_currency(session, plan)
-
-    if plan.group_by is None:
-        raw = session.execute(_apply_filters(_base_select(expression), plan.filters)).scalar_one()
-        value = (
-            Decimal(int(raw))
-            if plan.metric == "employee_count"
-            else (None if raw is None else _money(raw))
-        )
-        if value is not None and plan.metric in MONETARY_METRICS:
-            value = _converted(value, rate)
-        result = AskResult(
-            kind="scalar",
-            currency=currency,
-            columns=[
-                AskResultColumn(
-                    key="value",
-                    label=METRIC_LABELS[plan.metric],
-                    format="count" if plan.metric == "employee_count" else "currency",
-                )
-            ],
-            rows=[{"value": _row_value(plan.metric, value)}],
-        )
-        answer = (
-            f"{METRIC_LABELS[plan.metric]} for {_describe_filters(plan.filters)}: "
-            f"{_format_metric(plan.metric, value, currency)}."
-        )
-    else:
-        group_column = GROUP_COLUMNS[plan.group_by]
-        statement = _apply_filters(
-            _base_select(group_column.label("key"), expression), plan.filters
-        ).group_by(group_column)
-        if plan.sort is not None:
-            ordering = (
+    if query.order_by:
+        ordering = []
+        for order in query.order_by:
+            expression = selected_by_alias[order.key]
+            ordering.append(
                 expression.desc().nulls_last()
-                if plan.sort == "desc"
+                if order.direction == "desc"
                 else expression.asc().nulls_last()
             )
-            statement = statement.order_by(ordering, group_column.asc())
+        statement = statement.order_by(*ordering)
+    elif query.group_by:
+        statement = statement.order_by(
+            *(FIELD_INFO[field].expression.asc().nulls_last() for field in query.group_by)
+        )
+    elif not any(projection.aggregate is not None for projection in query.select):
+        if query.distinct:
+            statement = statement.order_by(*selected)
         else:
-            statement = statement.order_by(group_column.asc())
-        if plan.limit is not None:
-            statement = statement.limit(plan.limit)
-        rows: list[dict[str, str | int | None]] = []
-        for row in session.execute(statement):
-            raw = row.value
-            value = (
-                Decimal(int(raw))
-                if plan.metric == "employee_count"
-                else (None if raw is None else _money(raw))
-            )
-            if value is not None and plan.metric in MONETARY_METRICS:
-                value = _converted(value, rate)
-            rows.append({"key": row.key, "value": _row_value(plan.metric, value)})
-        result = AskResult(
-            kind="table",
-            currency=currency,
-            columns=[
-                AskResultColumn(key="key", label=DIMENSION_LABELS[plan.group_by].title()),
-                AskResultColumn(
-                    key="value",
-                    label=METRIC_LABELS[plan.metric],
-                    format="count" if plan.metric == "employee_count" else "currency",
-                ),
-            ],
-            rows=rows,
-        )
-        answer = (
-            f"{METRIC_LABELS[plan.metric]} by {DIMENSION_LABELS[plan.group_by]} for "
-            f"{_describe_filters(plan.filters)}. {len(rows):,} result(s)."
-        )
+            statement = statement.order_by(Employee.full_name, Employee.employee_code)
 
-    return AskOutcome(
-        status="answered",
-        answer=answer,
-        interpretation=_interpretation(plan),
-        plan=plan,
-        result=result,
-        analytics_path=_analytics_path(plan),
+    scalar_aggregate = (
+        not query.group_by
+        and not query.distinct
+        and all(projection.aggregate is not None for projection in query.select)
     )
+    if not scalar_aggregate:
+        statement = statement.limit(query.limit or DEFAULT_RESULT_LIMIT)
 
-
-def _execute_employees(session: Session, plan: QueryPlan) -> AskOutcome:
-    total = int(
-        session.execute(
-            _apply_filters(_base_select(func.count(Employee.id)), plan.filters)
-        ).scalar_one()
-    )
-    limit = plan.limit or 10
-    currency = plan.target_currency or "USD"
-    rate = _currency_rate(session, currency)
-
-    statement = _apply_filters(
-        _base_select(
-            Employee.full_name.label("full_name"),
-            Employee.employee_code.label("employee_code"),
-            Employee.country.label("country"),
-            Employee.department.label("department"),
-            Employee.job_title.label("job_title"),
-            Compensation.annual_salary.label("annual_salary"),
-            Compensation.currency_code.label("currency_code"),
-            SALARY_USD.label("salary_usd"),
-        ),
-        plan.filters,
-    )
-    sort_by = plan.sort_by or "full_name"
-    sort_column = {
-        "full_name": Employee.full_name,
-        "employee_code": Employee.employee_code,
-        "salary_usd": SALARY_USD,
-        "annual_salary": Compensation.annual_salary,
-    }[sort_by]
-    ordering = (
-        sort_column.desc().nulls_last() if plan.sort == "desc" else sort_column.asc().nulls_last()
-    )
-    statement = statement.order_by(
-        ordering, Employee.full_name.asc(), Employee.employee_code.asc()
-    ).limit(limit)
-
-    rows: list[dict[str, str | int | None]] = []
-    for row in session.execute(statement):
-        local_salary = None if row.annual_salary is None else _money(row.annual_salary)
-        salary_target = None if row.salary_usd is None else _converted(_money(row.salary_usd), rate)
-        local_compensation = (
-            "Not set"
-            if local_salary is None or row.currency_code is None
-            else f"{row.currency_code} {local_salary:,.2f}"
-        )
-        rows.append(
+    raw_rows: list[dict[str, object]] = []
+    serialized_rows: list[dict[str, str | int | None]] = []
+    for row in session.execute(statement).mappings():
+        raw = {column.key: row[column.key] for column in columns}
+        raw_rows.append(raw)
+        serialized_rows.append(
             {
-                "employee": row.full_name,
-                "employee_code": row.employee_code,
-                "role": f"{row.job_title} · {row.department}",
-                "country": row.country,
-                "local_compensation": local_compensation,
-                "salary": None if salary_target is None else f"{salary_target:.2f}",
+                column.key: _serialize_value(
+                    raw[column.key],
+                    column,
+                    rate_to_usd=rate_to_usd,
+                )
+                for column in columns
             }
         )
 
     result = AskResult(
-        kind="employees",
+        kind="scalar" if len(serialized_rows) == 1 and len(columns) == 1 else "table",
+        currency=target_currency if any(column.format == "currency" for column in columns) else None,
+        columns=[
+            AskResultColumn(key=column.key, label=column.label, format=column.format)
+            for column in columns
+        ],
+        rows=serialized_rows,
+    )
+    return ExecutedQuery(
+        name=query.name,
+        columns=tuple(columns),
+        raw_rows=tuple(raw_rows),
+        result=result,
+    )
+
+
+@dataclass(frozen=True)
+class ReferencedValue:
+    value: Decimal
+    format: ResultFormat
+    currency: str | None
+
+
+def _reference_value(executed: dict[str, ExecutedQuery], ref: ResultRef) -> ReferencedValue:
+    query = executed[ref.query]
+    if len(query.raw_rows) != 1:
+        raise InvalidPlanError(
+            f"calculation reference {ref.query}.{ref.column} is not scalar"
+        )
+    column = next((column for column in query.columns if column.key == ref.column), None)
+    if column is None:
+        raise InvalidPlanError(
+            f"calculation references unknown column {ref.query}.{ref.column}"
+        )
+    raw = query.raw_rows[0][ref.column]
+    if raw is None:
+        raise InvalidPlanError(
+            f"calculation reference {ref.query}.{ref.column} has no value"
+        )
+    try:
+        value = Decimal(str(raw))
+    except InvalidOperation as error:
+        raise InvalidPlanError(
+            f"calculation reference {ref.query}.{ref.column} is not numeric"
+        ) from error
+    return ReferencedValue(value=value, format=column.format, currency=column.currency)
+
+
+def _execute_calculation(
+    calculation: Calculation,
+    executed: dict[str, ExecutedQuery],
+) -> AskResult:
+    left = _reference_value(executed, calculation.left)
+    right = _reference_value(executed, calculation.right)
+
+    if calculation.op in ("divide", "percentage", "percent_difference", "ratio") and right.value == 0:
+        raise InvalidPlanError("calculation cannot divide by zero")
+
+    if calculation.op == "add":
+        value = left.value + right.value
+    elif calculation.op == "subtract":
+        value = left.value - right.value
+    elif calculation.op == "multiply":
+        value = left.value * right.value
+    elif calculation.op == "divide":
+        value = left.value / right.value
+    elif calculation.op == "percentage":
+        value = (left.value / right.value) * 100
+    elif calculation.op == "percent_difference":
+        value = ((left.value - right.value) / abs(right.value)) * 100
+    else:
+        value = left.value / right.value
+
+    result_format = calculation.format
+    currency: str | None = None
+    if result_format == "percent":
+        value = value.quantize(PERCENT, rounding=ROUND_HALF_UP)
+    elif result_format == "currency":
+        currencies = {item.currency for item in (left, right) if item.currency is not None}
+        if len(currencies) != 1:
+            raise InvalidPlanError("currency calculation requires one consistent currency")
+        currency = currencies.pop()
+        value = value.quantize(CENTS, rounding=ROUND_HALF_UP)
+    elif result_format == "count":
+        value = value.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    else:
+        value = value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    serialized: str | int | None
+    if result_format == "count":
+        serialized = int(value)
+    else:
+        serialized = format(value, "f")
+
+    return AskResult(
+        kind="scalar",
         currency=currency,
         columns=[
-            AskResultColumn(key="employee", label="Employee"),
-            AskResultColumn(key="employee_code", label="Employee code"),
-            AskResultColumn(key="role", label="Role"),
-            AskResultColumn(key="country", label="Country"),
-            AskResultColumn(key="local_compensation", label="Local compensation"),
-            AskResultColumn(key="salary", label=f"Salary in {currency}", format="currency"),
+            AskResultColumn(
+                key="value",
+                label=calculation.label,
+                format=result_format,
+            )
         ],
-        rows=rows,
-    )
-    answer = (
-        f"No employees match {_describe_filters(plan.filters)}."
-        if total == 0
-        else f"Found {total:,} matching employee(s). Showing {len(rows):,}."
-    )
-    return AskOutcome(
-        status="answered",
-        answer=answer,
-        interpretation=_interpretation(plan),
-        plan=plan,
-        result=result,
+        rows=[{"value": serialized}],
     )
 
 
-def _execute_values(session: Session, plan: QueryPlan) -> AskOutcome:
-    assert plan.field is not None
-    column = GROUP_COLUMNS[plan.field]
-    statement = _apply_filters(_base_select(column.label("value")), plan.filters).distinct()
-    statement = statement.order_by(column.desc() if plan.sort == "desc" else column.asc())
-    if plan.limit is not None:
-        statement = statement.limit(plan.limit)
-    values = [row.value for row in session.execute(statement) if row.value is not None]
-    result = AskResult(
-        kind="table",
-        columns=[AskResultColumn(key="value", label=DIMENSION_LABELS[plan.field].title())],
-        rows=[{"value": value} for value in values],
-    )
-    answer = (
-        f"Found {len(values):,} distinct {DIMENSION_LABELS[plan.field]} value(s) for "
-        f"{_describe_filters(plan.filters)}."
-    )
-    return AskOutcome(
-        status="answered",
-        answer=answer,
-        interpretation=_interpretation(plan),
-        plan=plan,
-        result=result,
-    )
+def _format_result_value(result: AskResult) -> str:
+    if not result.rows or not result.columns:
+        return "no matching data"
+    column = result.columns[0]
+    value = result.rows[0].get(column.key)
+    if value is None:
+        return "no value"
+    if column.format == "currency":
+        return f"{result.currency or 'USD'} {Decimal(str(value)):,.2f}"
+    if column.format == "count":
+        return f"{int(value):,}"
+    if column.format == "percent":
+        return f"{value}%"
+    return str(value)
 
 
-def _execute_share(session: Session, plan: QueryPlan) -> AskOutcome:
-    assert plan.metric is not None and plan.denominator_filters is not None
-    numerator = _metric_scalar(session, plan.metric, plan.filters)
-    denominator = _metric_scalar(session, plan.metric, plan.denominator_filters)
-    if numerator is None or denominator is None or denominator == 0:
-        return AskOutcome(
-            status="unsupported",
-            answer=f"{UNSUPPORTED_PREFIX} The comparison base has no value to divide by.",
+def _describe_filter(clause: FilterClause) -> str:
+    label = FIELD_INFO[clause.field].label.lower()
+    if clause.op == "eq":
+        return f"{label} = {clause.values[0]}"
+    if clause.op == "in":
+        return f"{label} in {', '.join(clause.values)}"
+    if clause.op == "contains":
+        return f'{label} contains "{clause.values[0]}"'
+    if clause.op == "starts_with":
+        return f'{label} starts with "{clause.values[0]}"'
+    if clause.op == "ends_with":
+        return f'{label} ends with "{clause.values[0]}"'
+    if clause.op == "is_null":
+        return f"{label} is missing"
+    if clause.op == "not_null":
+        return f"{label} is present"
+    return f"{label} {clause.op} {', '.join(clause.values)}"
+
+
+def _interpretation(program: QueryProgram) -> str:
+    if program.calculation is not None:
+        return program.calculation.label
+
+    query = program.queries[-1]
+    selected = ", ".join(_projection_label(projection) for projection in query.select)
+    parts = [selected]
+    if query.filters:
+        parts.append("for " + "; ".join(_describe_filter(clause) for clause in query.filters))
+    if query.group_by:
+        parts.append(
+            "grouped by " + ", ".join(FIELD_INFO[field].label.lower() for field in query.group_by)
         )
-    if numerator > denominator:
-        return AskOutcome(
-            status="unsupported",
-            answer=f"{UNSUPPORTED_PREFIX} The percentage scopes are inconsistent.",
-        )
-    percentage = ((numerator / denominator) * 100).quantize(PERCENT, rounding=ROUND_HALF_UP)
-    result = AskResult(
-        kind="scalar",
-        columns=[AskResultColumn(key="value", label="Share", format="percent")],
-        rows=[{"value": f"{percentage:.2f}"}],
-    )
-    answer = (
-        f"{METRIC_LABELS[plan.metric]} for {_describe_filters(plan.filters)} is "
-        f"{percentage:.2f}% of {_describe_filters(plan.denominator_filters)}."
-    )
-    return AskOutcome(
-        status="answered",
-        answer=answer,
-        interpretation=_interpretation(plan),
-        plan=plan,
-        result=result,
-    )
+    if query.target_currency is not None:
+        parts.append(f"converted to {query.target_currency}")
+    return ", ".join(parts)
 
 
-def _execute_compare(session: Session, plan: QueryPlan) -> AskOutcome:
-    assert plan.metric is not None
-    assert plan.compare_filters is not None
-    assert plan.comparison is not None
-    left = _metric_scalar(session, plan.metric, plan.filters)
-    right = _metric_scalar(session, plan.metric, plan.compare_filters)
-    if left is None or right is None:
-        return AskOutcome(
-            status="unsupported",
-            answer=f"{UNSUPPORTED_PREFIX} One comparison scope has no compensation value.",
-        )
+def _answer_for_result(result: AskResult) -> str:
+    if result.kind == "scalar" and len(result.rows) == 1 and len(result.columns) == 1:
+        label = result.columns[0].label
+        return f"{label}: {_format_result_value(result)}."
+    return f"Derived {len(result.rows):,} row(s) from Compensation Hub data."
 
-    currency: str | None = None
-    if plan.metric in MONETARY_METRICS:
-        currency = plan.target_currency or "USD"
-        rate = _currency_rate(session, currency)
-        left = _converted(left, rate)
-        right = _converted(right, rate)
 
-    if plan.comparison == "difference":
-        value = left - right
-        if plan.metric == "employee_count":
-            row_value: str | int | None = int(value)
-            display = f"{int(value):,}"
-            result_format = "count"
-        else:
-            row_value = f"{value:.2f}"
-            display = f"{currency} {value:,.2f}"
-            result_format = "currency"
-    elif plan.comparison == "percent_difference":
-        if right == 0:
-            return AskOutcome(
-                status="unsupported",
-                answer=f"{UNSUPPORTED_PREFIX} The comparison value is zero.",
-            )
-        value = (((left - right) / abs(right)) * 100).quantize(PERCENT, rounding=ROUND_HALF_UP)
-        row_value = f"{value:.2f}"
-        display = f"{value:.2f}%"
-        result_format = "percent"
-        currency = None
+def _analytics_path(program: QueryProgram) -> str | None:
+    if program.calculation is not None or len(program.queries) != 1:
+        return None
+    query = program.queries[0]
+    if query.target_currency not in (None, "USD") or len(query.select) != 1:
+        return None
+
+    projection = query.select[0]
+    metric: str | None = None
+    if projection.aggregate == "count" and projection.field is None:
+        metric = "headcount"
+    elif projection.aggregate == "avg" and projection.field == "salary_usd":
+        metric = "average"
+    elif projection.aggregate == "sum" and projection.field == "salary_usd":
+        metric = "payroll"
+    if metric is None:
+        return None
+
+    if len(query.group_by) > 1:
+        return None
+    if query.group_by and query.group_by[0] not in ("country", "department", "job_title"):
+        return None
+
+    params: dict[str, str] = {"metric": metric}
+    for clause in query.filters:
+        if (
+            clause.field not in ("country", "department", "job_title")
+            or clause.op != "eq"
+            or len(clause.values) != 1
+        ):
+            return None
+        params[clause.field] = clause.values[0]
+    if query.group_by:
+        params["by"] = query.group_by[0]
+    return "/analytics?" + urlencode(params)
+
+
+def _execute_program(session: Session, program: QueryProgram) -> AskOutcome:
+    executed: dict[str, ExecutedQuery] = {}
+    for query in program.queries:
+        executed[query.name] = _execute_query(session, query)
+
+    if program.calculation is not None:
+        result = _execute_calculation(program.calculation, executed)
     else:
-        if right == 0:
-            return AskOutcome(
-                status="unsupported",
-                answer=f"{UNSUPPORTED_PREFIX} The comparison value is zero.",
-            )
-        value = (left / right).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        row_value = f"{value:.2f}×"
-        display = str(row_value)
-        result_format = "text"
-        currency = None
+        result = executed[program.queries[-1].name].result
 
-    result = AskResult(
-        kind="scalar",
-        currency=currency,
-        columns=[AskResultColumn(key="value", label="Comparison", format=result_format)],
-        rows=[{"value": row_value}],
-    )
-    answer = (
-        f"{plan.comparison.replace('_', ' ').title()} in {METRIC_LABELS[plan.metric].lower()} "
-        f"between {_describe_filters(plan.filters)} and {_describe_filters(plan.compare_filters)}: "
-        f"{display}."
-    )
     return AskOutcome(
         status="answered",
-        answer=answer,
-        interpretation=_interpretation(plan),
-        plan=plan,
+        answer=_answer_for_result(result),
+        interpretation=_interpretation(program),
+        plan=program,
         result=result,
+        analytics_path=_analytics_path(program),
     )
-
-
-def _execute(session: Session, plan: QueryPlan) -> AskOutcome:
-    if plan.kind == "aggregate":
-        return _execute_aggregate(session, plan)
-    if plan.kind == "employees":
-        return _execute_employees(session, plan)
-    if plan.kind == "values":
-        return _execute_values(session, plan)
-    if plan.kind == "share":
-        return _execute_share(session, plan)
-    return _execute_compare(session, plan)
 
 
 def ask(
@@ -682,17 +745,21 @@ def ask(
     planner: QueryPlanner,
     history: list[AskHistoryItem] | None = None,
 ) -> AskOutcome:
-    """Plan one read-only question, validate it, then execute it against application data."""
+    """Derive one read-only answer from available Compensation Hub data."""
     history = history or []
     context = _planner_context(session)
     raw = planner.plan(question, context, _planner_history(history))
+
     try:
         response = parse_planner_response(raw)
     except InvalidPlanError as error:
         logger.warning("Rejected planner response: %s", error)
         return AskOutcome(
             status="unsupported",
-            answer=f"{UNSUPPORTED_PREFIX} The question could not be mapped to a safe data query.",
+            answer=(
+                f"{UNSUPPORTED_PREFIX} The question could not be mapped to a valid "
+                "read-only query."
+            ),
         )
 
     if response.status == "unsupported":
@@ -701,13 +768,12 @@ def ask(
             answer=f"{UNSUPPORTED_PREFIX} {response.reason}",
         )
 
-    plan = response.plan
-    reason = _validate_plan_values(plan, context)
-    if reason is not None:
-        return AskOutcome(status="unsupported", answer=f"{UNSUPPORTED_PREFIX} {reason}")
-
     try:
-        return _execute(session, plan)
+        _validate_program_values(response.plan, context)
+        return _execute_program(session, response.plan)
     except InvalidPlanError as error:
-        logger.warning("Rejected executable plan: %s", error)
-        return AskOutcome(status="unsupported", answer=f"{UNSUPPORTED_PREFIX} {error}")
+        logger.warning("Rejected executable Ask Compensation program: %s", error)
+        return AskOutcome(
+            status="unsupported",
+            answer=f"{UNSUPPORTED_PREFIX} {error}",
+        )
