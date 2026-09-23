@@ -269,14 +269,10 @@ def _compile_expression(
                 "Currency conversion must wrap a salary_usd-based monetary expression"
             )
         rate = session.scalar(
-            select(FxRate.rate_to_usd).where(
-                FxRate.currency_code == expression.currency_code
-            )
+            select(FxRate.rate_to_usd).where(FxRate.currency_code == expression.currency_code)
         )
         if rate is None:
-            raise InvalidPlanError(
-                f"No exchange rate is configured for {expression.currency_code}"
-            )
+            raise InvalidPlanError(f"No exchange rate is configured for {expression.currency_code}")
         inner = _compile_expression(session, expression.expression, depth=depth + 1)
         return inner / Decimal(rate)
 
@@ -425,9 +421,7 @@ def _execute_plan(session: Session, plan: QueryPlan) -> AskResult:
     currency_by_column: dict[str, str] = {}
     columns: list[AskResultColumn] = []
     for item, _ in compiled:
-        columns.append(
-            AskResultColumn(key=item.alias, label=item.label, format=item.format)
-        )
+        columns.append(AskResultColumn(key=item.alias, label=item.label, format=item.format))
         if item.format == "currency":
             currency = _currency_code(item.expression)
             if currency is None:
@@ -439,10 +433,7 @@ def _execute_plan(session: Session, plan: QueryPlan) -> AskResult:
     rows: list[dict[str, str | int | None]] = []
     for row in raw_rows:
         rows.append(
-            {
-                item.alias: _serialize_cell(row[item.alias], item.format)
-                for item, _ in compiled
-            }
+            {item.alias: _serialize_cell(row[item.alias], item.format) for item, _ in compiled}
         )
 
     scalar = (
