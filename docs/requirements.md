@@ -57,23 +57,19 @@ Cross-country monetary metrics use the normalized analytics currency.
 
 ### Ask Compensation
 
-The HR Manager can ask read-only questions in natural language whenever the answer can be derived from the employee, current-compensation, and exchange-rate data stored by Compensation Hub.
+Ask Compensation is a read-only natural-language interface over the data Compensation Hub actually stores.
 
-Examples include:
+The product rule is:
 
-- What is the average salary in Engineering?
-- What is the total payroll for Germany?
-- Who are the five highest-paid Engineering employees in India?
-- What percentage of employees are in Engineering?
-- What currencies are used in Germany?
-- Convert that payroll result to INR.
-- What is the median salary in Sales?
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
-Ask Compensation supports contextual follow-up questions by carrying forward prior validated query intent. The language model interprets the question; application code validates the plan and PostgreSQL performs the authoritative query or calculation.
+The assistant is not limited to the metrics or views exposed by the Analytics page. It can combine safe read-only operations over employee, current-compensation, and exchange-rate data when those operations are required to answer the user's question.
 
-If a question requires data the product does not store, the response should identify the missing data rather than guess. For example, a question filtered by gender cannot be answered because gender is not part of the employee model.
+Follow-up questions can use a bounded history of prior validated intent so the HR Manager can refine a question without restating its full context.
 
-Ask Compensation remains read-only. It cannot update employee or compensation data, make salary recommendations, or execute arbitrary model-generated SQL.
+The language model interprets language and proposes a structured read-only program. Application code validates that program, constructs the allowed SQLAlchemy operations, and uses PostgreSQL plus deterministic application calculations for the authoritative result.
+
+Ask Compensation cannot mutate data, make salary recommendations, infer fields that are not stored, or execute arbitrary model-generated SQL.
 
 ## Deliberate Non-Goals
 
