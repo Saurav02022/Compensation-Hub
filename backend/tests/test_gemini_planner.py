@@ -7,6 +7,7 @@ from google.genai import errors
 from compensation_hub.ask_compensation.provider import (
     GeminiQueryPlanner,
     PlannerContext,
+    PlannerTurn,
     PlannerUnavailableError,
     UnconfiguredQueryPlanner,
     build_query_planner,
@@ -18,6 +19,8 @@ CONTEXT = PlannerContext(
     countries=("Germany", "India"),
     departments=("Engineering", "Sales"),
     job_titles=("Software Engineer", "Account Executive"),
+    currency_codes=("EUR", "INR", "USD"),
+    country_currencies=(("Germany", "EUR"), ("India", "INR")),
 )
 
 
@@ -52,12 +55,14 @@ def planner_with(outcome: object) -> tuple[GeminiQueryPlanner, FakeModels]:
 
 def test_plan_sends_question_with_constrained_json_config() -> None:
     planner, models = planner_with(
-        FakeResponse('{"status": "plan", "plan": {"metric": "employee_count"}}')
+        FakeResponse(
+            '{"status": "plan", "plan": {"kind": "aggregate", "metric": "employee_count"}}'
+        )
     )
 
     raw = planner.plan("How many employees are there?", CONTEXT)
 
-    assert raw == '{"status": "plan", "plan": {"metric": "employee_count"}}'
+    assert '"employee_count"' in raw
     call = models.calls[0]
     assert call["model"] == "gemini-test"
     assert call["contents"] == "How many employees are there?"
@@ -67,15 +72,48 @@ def test_plan_sends_question_with_constrained_json_config() -> None:
     assert config.response_json_schema["properties"]["status"]["enum"] == ["plan", "unsupported"]
     assert "Germany" in config.system_instruction
     assert "Account Executive" in config.system_instruction
+    assert "INR" in config.system_instruction
+    assert "gender" in config.system_instruction.lower()
 
 
-def test_system_instruction_lists_only_dimension_vocabulary() -> None:
+def test_plan_includes_only_validated_plan_history_not_result_rows() -> None:
+    planner, models = planner_with(
+        FakeResponse(
+            '{"status": "plan", "plan": {"kind": "aggregate", "metric": "total_payroll", '
+            '"target_currency": "INR"}}'
+        )
+    )
+    history = (
+        PlannerTurn(
+            question="What is the total payroll in Germany?",
+            plan_json=(
+                '{"kind":"aggregate","metric":"total_payroll",'
+                '"filters":{"countries":["Germany"]}}'
+            ),
+        ),
+    )
+
+    planner.plan("Convert that to Indian currency.", CONTEXT, history)
+
+    contents = models.calls[0]["contents"]
+    assert "Previous validated turns" in contents
+    assert "What is the total payroll in Germany?" in contents
+    assert '"countries":["Germany"]' in contents
+    assert "Convert that to Indian currency." in contents
+    assert "104,055,840" not in contents
+
+
+def test_system_instruction_describes_available_data_and_boundaries() -> None:
     instruction = build_system_instruction(CONTEXT)
 
     assert '"Germany", "India"' in instruction
     assert '"Engineering", "Sales"' in instruction
-    assert "unsupported" in instruction
-    assert "who should get a raise" in instruction
+    assert '"Germany" -> "EUR"' in instruction
+    assert "employee_code" in instruction
+    assert "median_salary" in instruction
+    assert "follow-up" in instruction.lower()
+    assert "gender" in instruction.lower()
+    assert "never infer" in instruction.lower()
 
 
 def test_api_error_becomes_unavailable() -> None:
