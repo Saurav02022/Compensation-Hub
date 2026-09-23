@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 9 — Product Design Rebuild
+**Current phase:** Phase 7 — Final Product Review and Delivery (demo recording pending)
 
 ## Status
 
@@ -185,8 +185,8 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [x] Review the AI-assisted development record.
 - [x] Verify Git history is incremental and understandable.
 - [x] Perform a clean-clone setup and full verification run.
-- [ ] Record a concise demo of the primary HR workflows (manual step for the product owner; the demo flow is: directory search and filters, employee detail, salary update, compensation overview, Ask Compensation).
-- [ ] Verify repository, deployment, and demo links (repository and both Cloud Run URLs verified; the demo link is pending the recording).
+- [ ] Record a concise demo of the primary HR workflows: directory search and filters, employee detail, salary update, compensation overview, analytics, and Ask Compensation.
+- [ ] Verify repository, deployment, and demo links. The repository and deployed application are verified; the demo link is pending the recording.
 
 **Exit condition:** the product is reproducible, documented, deployed, and ready to understand and use without additional setup guidance.
 
@@ -194,7 +194,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ## Phase 8 — Product Design and UX Refinement
 
-Requested by the product owner after the end-to-end delivery: make the implemented product feel like one coherent, polished application without changing its architecture or scope.
+After the end-to-end product was working, the interface was refined to make the application feel coherent and polished without changing its architecture or scope.
 
 - [x] Establish the visual foundations: tokens, typography, spacing, and the reusable UI primitives the product needs.
 - [x] Build the application shell with a sticky header, product identity, and primary navigation with a clear active state.
@@ -215,7 +215,7 @@ Requested by the product owner after the end-to-end delivery: make the implement
 
 ## Phase 9 — Product Design Rebuild
 
-Requested by the product owner after Phase 8: rebuild the interface around patterns observed in current product UI from YC-backed B2B software, so Compensation Hub reads as a focused operational product rather than a generic dashboard, without changing its API, business rules, or architecture.
+A second design pass rebuilt the interface around patterns observed in current B2B product interfaces so Compensation Hub reads as a focused operational product rather than a generic dashboard, without changing its API, business rules, or architecture.
 
 - [x] Research product UI from YC-backed HR, finance, data, and analytics products.
 - [x] Synthesize the research into a design direction for Compensation Hub.
