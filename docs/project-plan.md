@@ -217,18 +217,18 @@ Requested by the product owner after the end-to-end delivery: make the implement
 
 Requested by the product owner after Phase 8: rebuild the interface around patterns observed in current product UI from YC-backed B2B software, so Compensation Hub reads as a focused operational product rather than a generic dashboard, without changing its API, business rules, or architecture.
 
-- [ ] Research product UI from YC-backed HR, finance, data, and analytics products.
-- [ ] Synthesize the research into a design direction for Compensation Hub.
-- [ ] Rebuild the visual foundations: typography, color, density, and the shared primitives.
-- [ ] Replace the top header with a sticky sidebar shell and compact mobile navigation.
-- [ ] Dock Ask Compensation beside the page, reachable from every screen and by keyboard.
-- [ ] Rebuild the employee directory toolbar, table, and pagination for 10,000 records.
-- [ ] Keep directory search, filters, and pagination server-side and URL-addressable.
-- [ ] Rebuild the employee detail page and the salary editing workflow.
-- [ ] Rebuild analytics as one breakdown workspace with exact values beside the bars.
-- [ ] Focus the overview on orientation and next steps.
-- [ ] Design loading, refresh, empty, error, and unavailable states on every surface.
-- [ ] Complete a responsive and accessibility pass.
-- [ ] Review the rendered product visually, refine it, and run the full verification.
+- [x] Research product UI from YC-backed HR, finance, data, and analytics products.
+- [x] Synthesize the research into a design direction for Compensation Hub.
+- [x] Rebuild the visual foundations: typography, color, density, and the shared primitives.
+- [x] Replace the top header with a sticky sidebar shell and compact mobile navigation.
+- [x] Dock Ask Compensation beside the page, reachable from every screen and by keyboard.
+- [x] Rebuild the employee directory toolbar, table, and pagination for 10,000 records.
+- [x] Keep directory search, filters, and pagination server-side and URL-addressable.
+- [x] Rebuild the employee detail page and the salary editing workflow.
+- [x] Rebuild analytics as one breakdown workspace with exact values beside the bars.
+- [x] Focus the overview on orientation and next steps.
+- [x] Design loading, refresh, empty, error, and unavailable states on every surface.
+- [x] Complete a responsive and accessibility pass.
+- [x] Review the rendered product visually, refine it, and run the full verification.
 
-**Exit condition:** not complete.
+**Exit condition:** complete — the product runs in a sticky sidebar shell with Ask Compensation docked beside every page and on Ctrl/⌘ K, the directory and analytics stay server-backed and URL-addressable with bounded requests, analytics shows every measure beside its bars in one drill-down workspace, and lint, type, test, and build checks pass.

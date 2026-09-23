@@ -349,6 +349,41 @@ How it was verified: 48 frontend tests, eslint, tsc, and next build; 112
   Escape, and no horizontal overflow at 375 px.
 ```
 
+```text
+Date: 2026-09-23
+Tool: Claude Code
+Task: Phase 9 — product design rebuild
+How AI was used: Researched product UI from YC-backed companies (Rippling, Deel,
+  Gusto, Brex, Plane, Pave, Retool, Vanta, Supabase, Airbyte, Front, PostHog,
+  Mixpanel, Amplitude, Finch) through help centers, documentation, and product
+  screenshots; synthesized the recurring patterns; audited the running product
+  at four widths; rebuilt the shell, directory, detail, analytics, overview,
+  and Ask Compensation surfaces; and reviewed the rendered result in a browser.
+What was accepted: A sticky sidebar shell; Ask Compensation as a panel docked
+  beside the page on wide screens (a modal sheet below 1280 px) with Ctrl/Cmd K,
+  a conversation kept across navigation, answers shown as figures with a plain
+  reading and a link to the same view in Analytics; compact filter controls over
+  native selects; table columns that collapse by container width so the docked
+  panel never squeezes the directory; one transition shared by filters, search,
+  and pagination so results dim in place instead of flashing; analytics as a
+  single breakdown workspace (dimension and measure in the URL, every measure
+  beside its bar, click-to-drill); headline figures rounded with exact values on
+  hover; Geist through next/font; salary edits with inline validation and a
+  before/after preview.
+What was changed or rejected: The Frame primitive first used overflow-hidden,
+  which made it the scroll container, so the sticky table header covered the
+  first row on narrow screens; it now uses overflow-clip. A share-of-total
+  column, trend deltas, and a chart library were rejected because they would
+  compute or imply figures the backend does not provide.
+How it was verified: 66 frontend tests, eslint, tsc, and next build; 112
+  backend tests, ruff, and mypy; a scripted browser journey covering search by
+  name and code (one request per typed query), combined filters, pagination,
+  reload and back/forward, a salary edit and revert, analytics drill-down, a
+  live Ask question, an unsupported question, the panel across navigation,
+  empty, out-of-range, and not-found states, and no horizontal overflow at
+  375 px.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.
