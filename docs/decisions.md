@@ -320,28 +320,26 @@ Employee detail browser tabs show the generic Compensation Hub title instead of 
 
 ---
 
-## D019 — Broaden Ask Compensation with a constrained data-query model, not RAG or text-to-SQL
+## D019 — Ask Compensation is data-grounded, not question-list-driven
 
-Ask Compensation accepts any read-only natural-language question that can be derived from the employee, current-compensation, and FX data stored by Compensation Hub.
+Ask Compensation is defined by the data available to the product rather than by a fixed catalogue of supported questions.
 
-The validated plan can represent:
+The governing rule is:
 
-- aggregates including count, total, average, minimum, maximum, and median,
-- filtering and grouping over stored dimensions,
-- bounded employee lookup and ranking,
-- distinct stored values,
-- percentages and direct comparisons,
-- deterministic currency conversion using the FX table,
-- contextual follow-up questions using prior validated plans.
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
-The language model receives the current question, schema vocabulary, and a bounded history of prior questions plus their validated plans. Previous result rows and salary values are not sent back to the model as conversation context.
+The language model translates natural language into a generic, constrained read-only program. That program can select stored fields, filter them, aggregate them, group and order results, bound result sets, calculate statistics, perform deterministic arithmetic over scalar query results, and convert normalized monetary values using the configured FX data.
+
+Application code validates every field, operator, value, result bound, and arithmetic reference before constructing SQLAlchemy expressions. The model never supplies executable SQL and cannot represent writes.
+
+For conversational follow-ups, the planner receives a bounded history of previous questions and their validated programs. It does not receive previous result rows or compensation values as conversational memory.
 
 **Why**
 
-The original three-metric analytics plan was safe but narrower than the conversational product experience. Questions such as employee ranking, percentages, median salary, stored-value discovery, and "convert that to INR" are answerable from existing data and should not fail merely because they were not anticipated as dashboard operations.
+A fixed list of question shapes makes a conversational interface fail on questions that are answerable from data the application already has. The useful product boundary is the available data and the safe read-only operations over that data, not the set of questions anticipated during implementation.
 
-RAG does not solve this problem because the source of truth is structured relational data rather than documents. Free-form text-to-SQL would increase the query surface and make validation harder. A richer structured plan keeps the language-understanding layer flexible while application code retains control of the operations that can execute.
+RAG does not solve this problem because the source of truth is structured relational data, not unstructured documents. Free-form text-to-SQL would broaden the execution surface unnecessarily. A constrained query program keeps language interpretation flexible while preserving application-owned validation and execution.
 
 **Trade-off**
 
-The plan still cannot express every possible computation. New query capabilities must be added deliberately when they can be validated and executed safely. Questions that require absent fields, historical data, external knowledge, or subjective compensation decisions remain unanswerable and are reported as such.
+The assistant can only derive answers from fields and relationships that exist in Compensation Hub and from operations represented by the validated read-only program. Questions requiring absent fields, historical information, external knowledge, or subjective compensation decisions remain unanswerable and are reported with the missing-data boundary.
