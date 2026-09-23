@@ -542,6 +542,35 @@ def _execute_calculation(
     left, left_column = _resolve_ref(executed, calculation.left)
     right, right_column = _resolve_ref(executed, calculation.right)
 
+    left_currency = left_column.currency
+    right_currency = right_column.currency
+    both_currency = left_currency is not None and right_currency is not None
+    same_currency = both_currency and left_currency == right_currency
+
+    if both_currency and not same_currency:
+        raise InvalidProgramError(
+            "Deterministic arithmetic cannot combine different currencies"
+        )
+
+    if calculation.op in {"add", "subtract"}:
+        if (left_currency is None) != (right_currency is None):
+            raise InvalidProgramError(
+                f"{calculation.op} requires operands with compatible units"
+            )
+    elif calculation.op == "multiply":
+        if both_currency:
+            raise InvalidProgramError("multiply cannot combine two monetary values")
+    elif calculation.op == "divide":
+        if left_currency is None and right_currency is not None:
+            raise InvalidProgramError(
+                "divide cannot divide a dimensionless value by a monetary value"
+            )
+    elif calculation.op in {"percentage", "percent_difference", "ratio"}:
+        if (left_currency is None) != (right_currency is None):
+            raise InvalidProgramError(
+                f"{calculation.op} requires operands with compatible units"
+            )
+
     if calculation.op in {"divide", "percentage", "percent_difference", "ratio"} and right == 0:
         raise InvalidProgramError("The requested calculation divides by zero")
 
@@ -564,18 +593,33 @@ def _execute_calculation(
             f"Unsupported calculation operator {calculation.op}"
         )
 
-    currency: str | None = None
+    expected_currency: str | None = None
+    if calculation.op in {"add", "subtract"} and same_currency:
+        expected_currency = left_currency
+    elif calculation.op == "multiply":
+        expected_currency = left_currency or right_currency
+    elif calculation.op == "divide" and left_currency is not None and right_currency is None:
+        expected_currency = left_currency
+
     if calculation.format == "currency":
-        currencies = {
-            source
-            for source in (left_column.currency, right_column.currency)
-            if source is not None
-        }
-        if len(currencies) != 1:
+        if expected_currency is None:
             raise InvalidProgramError(
-                "Currency calculations require one consistent source currency"
+                "The requested calculation does not produce a monetary value"
             )
-        currency = currencies.pop()
+        currency = expected_currency
+    else:
+        if expected_currency is not None:
+            raise InvalidProgramError(
+                "A monetary calculation must use currency result formatting"
+            )
+        currency = None
+
+    if calculation.op in {"percentage", "percent_difference"} and calculation.format != "percent":
+        raise InvalidProgramError(
+            f"{calculation.op} must use percent result formatting"
+        )
+    if calculation.op == "ratio" and calculation.format in {"currency", "percent", "count"}:
+        raise InvalidProgramError("ratio must use numeric result formatting")
 
     return value, currency
 
