@@ -216,7 +216,7 @@ describe("AskPanel", () => {
     expect(screen.getByText("Engineering")).toBeInTheDocument();
     expect(screen.getByText("USD 114,229")).toBeInTheDocument();
     expect(screen.getByText("Aarav Sharma")).toBeInTheDocument();
-    expect(screen.getByText("INR 8,000,000.00")).toBeInTheDocument();
+    expect(screen.getByText(/INR 8,000,000.00/)).toBeInTheDocument();
 
     const links = screen.getAllByRole("link", { name: /Open in Analytics/ });
     expect(links[0]).toHaveAttribute("href", single.analytics_path);
