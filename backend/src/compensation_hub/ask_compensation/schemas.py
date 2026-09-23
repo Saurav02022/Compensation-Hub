@@ -59,6 +59,7 @@ Identifier = Annotated[
     StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z][A-Za-z0-9_]{0,49}$"),
 ]
 QuestionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
+FilterValue = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 CurrencyCode = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z]{3}$")
 ]
@@ -71,7 +72,7 @@ class FilterClause(BaseModel):
 
     field: DataField
     op: FilterOperator
-    values: Annotated[list[str], Field(max_length=20)] = Field(default_factory=list)
+    values: Annotated[list[FilterValue], Field(max_length=20)] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def value_shape_matches_operator(self) -> "FilterClause":
