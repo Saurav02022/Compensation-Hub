@@ -133,7 +133,7 @@ It defines the order of work and the exit condition for each phase. Product scop
 - [x] Add a small optional live-model evaluation set.
 - [x] Record meaningful AI-assisted engineering work in `ai-usage.md`.
 
-**Exit condition:** complete — supported questions are mapped by Gemini to validated query plans and answered by the same analytics service as the overview page; with no provider configured or the provider failing, the API returns a clear 503 for Ask Compensation while the directory, compensation updates, and analytics keep working.
+**Exit condition:** complete — the initial Ask Compensation capability maps natural language to validated read-only plans and keeps model interpretation separate from authoritative database calculations; with no provider configured or the provider failing, the API returns a clear 503 for Ask Compensation while the directory, compensation updates, and analytics keep working.
 
 ---
 
@@ -239,19 +239,20 @@ A second design pass rebuilt the interface around patterns observed in current B
 
 ## Phase 10 — Data-Grounded Ask Compensation
 
-Extend the conversational assistant so HR can ask any read-only question that can be derived from data Compensation Hub actually stores, rather than being limited to the fixed Analytics workspace.
+Generalize the conversational assistant so answerability is determined by the data Compensation Hub has, not by a fixed list of anticipated question shapes.
 
-- [x] Carry a bounded history of prior questions and validated plans for contextual follow-ups.
-- [x] Broaden the validated query model beyond three fixed analytics metrics.
-- [x] Support current-data aggregates including minimum, maximum, and median salary.
-- [x] Support bounded employee lookup and compensation ranking.
-- [x] Support distinct stored-value questions.
-- [x] Support percentages and direct comparisons.
-- [x] Support deterministic conversion to currencies present in the FX table.
-- [x] Explain missing data specifically instead of returning a generic unsupported-analytics response.
-- [x] Keep the assistant read-only and prevent model-generated SQL or write operations.
-- [x] Render scalar, tabular, and employee results in the existing assistant.
-- [x] Expand deterministic automated tests and the optional live-model evaluation.
-- [x] Reconcile requirements, decisions, architecture, README, and the development record.
+- [x] Define the product contract: derive an answer whenever the required stored data is available; otherwise identify the missing data.
+- [x] Replace the fixed analytics-plan shape with a generic constrained read-only query program.
+- [x] Expose only approved employee, current-compensation, normalized salary, and FX fields to the planner.
+- [x] Validate filter operators, projections, aggregates, grouping, ordering, row limits, currency handling, and arithmetic references before execution.
+- [x] Construct all executable database operations with SQLAlchemy; do not execute model-generated SQL.
+- [x] Keep every result set bounded.
+- [x] Carry a bounded history of previous questions and validated programs so follow-up turns can refine prior intent.
+- [x] Keep previous result rows and salary values out of model conversation history.
+- [x] Return a specific missing-data boundary rather than infer absent employee attributes or external facts.
+- [x] Preserve the provider-outage boundary so core product workflows remain independent of the language model.
+- [x] Render generic scalar and tabular results in the existing assistant.
+- [x] Expand deterministic tests and the optional live-model evaluation around the data-grounding contract.
+- [x] Reconcile requirements, decisions, architecture, README, and AI-usage documentation.
 
-**Exit condition:** complete — Ask Compensation answers the broader class of read-only questions derivable from employee, current-compensation, and FX data; contextual follow-ups such as currency conversion preserve validated intent; questions requiring unavailable data are declined specifically; and the full backend/frontend quality suite passes.
+**Exit condition:** complete — Ask Compensation uses a generic validated read-only query language over Compensation Hub data, supports bounded conversational refinement, derives authoritative results through PostgreSQL and deterministic application code, and refuses only when the required data or permitted operation is unavailable.
