@@ -119,7 +119,7 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
               Ask Compensation
             </h2>
             <p id={descriptionId} className="truncate text-xs text-ink-muted">
-              Answers from the same figures as Analytics
+              Answers grounded in Compensation Hub data
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -138,8 +138,8 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
           {empty && (
             <div>
               <p className="text-[13px] text-ink-secondary">
-                Ask about headcount, total payroll, or average salary, for or by country, department, or job title.
-                Amounts are in USD at the fixed exchange rates.
+                Ask any read-only question about the data in Compensation Hub. If the required data is available, the
+                answer is derived from it. If it is not, the assistant explains what is missing.
               </p>
               <p className="mt-5 text-xs font-medium text-ink-muted">Examples</p>
               <ul className="mt-1.5 divide-y divide-border rounded-surface border border-border">

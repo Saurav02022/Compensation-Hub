@@ -1,12 +1,8 @@
 """Optional live-model evaluation for Ask Compensation.
 
-Excluded from the default test run and from CI. It needs TEST_DATABASE_URL, GEMINI_API_KEY,
-and the ``live`` marker selected explicitly:
-
-    uv run pytest -m live
-
-Each case checks that a representative question maps to the expected structured request; the
-numbers themselves come from the deterministic analytics service and are not asserted here.
+Excluded from the default test run and CI. It verifies that Gemini can translate varied,
+answerable questions into the generic read-only query AST and that questions requiring data
+outside the schema are declined without guessing.
 """
 
 import pytest
@@ -18,38 +14,21 @@ from compensation_hub.core.config import Settings
 
 pytestmark = pytest.mark.live
 
-CASES: list[tuple[str, dict[str, object]]] = [
-    (
-        "What is the average salary in Engineering?",
-        {"metric": "average_salary", "department": "Engineering", "group_by": None},
-    ),
-    (
-        "What is the total payroll for Germany?",
-        {"metric": "total_payroll", "country": "Germany", "group_by": None},
-    ),
-    (
-        "Show average compensation by department.",
-        {"metric": "average_salary", "group_by": "department"},
-    ),
-    (
-        "How many Engineering employees are based in India?",
-        {
-            "metric": "employee_count",
-            "department": "Engineering",
-            "country": "India",
-            "group_by": None,
-        },
-    ),
-    (
-        "Which three countries have the highest total payroll?",
-        {"metric": "total_payroll", "group_by": "country", "sort": "desc", "limit": 3},
-    ),
+ANSWERABLE_QUESTIONS = [
+    "How many employees are in Engineering?",
+    "Which departments have the highest average salary?",
+    "What is the median salary in Sales?",
+    "Who are the five highest-paid Engineering employees in India?",
+    "What percentage of employees are in Engineering?",
+    "Which currencies are used in Germany?",
+    "How much larger is Germany's payroll than India's?",
+    "Show employees whose names contain Patel.",
 ]
 
-UNSUPPORTED_QUESTIONS = [
-    "Who should get a raise this year?",
-    "What was Michael Nguyen's salary last year?",
-    "What is the median salary in Sales?",
+MISSING_DATA_QUESTIONS = [
+    "How many male engineers are based in India?",
+    "What was the total payroll last year?",
+    "Which employees have the highest performance rating?",
 ]
 
 
@@ -64,26 +43,51 @@ def live_client(seeded_client: TestClient) -> TestClient:
     return seeded_client
 
 
-@pytest.mark.parametrize(("question", "expected"), CASES, ids=[case[0] for case in CASES])
-def test_supported_question_maps_to_expected_plan(
-    live_client: TestClient, question: str, expected: dict[str, object]
+@pytest.mark.parametrize("question", ANSWERABLE_QUESTIONS)
+def test_answerable_question_produces_data_grounded_result(
+    live_client: TestClient,
+    question: str,
 ) -> None:
-    body = live_client.post("/analytics/ask", json={"question": question}).json()
+    body = live_client.post(
+        "/analytics/ask",
+        json={"question": question, "history": []},
+    ).json()
 
     assert body["status"] == "answered", body
-    plan = body["plan"]
-    assert plan["metric"] == expected["metric"]
-    assert plan["group_by"] == expected.get("group_by")
-    for field in ("country", "department", "job_title"):
-        assert plan["filters"][field] == expected.get(field), field
-    if "sort" in expected:
-        assert plan["sort"] == expected["sort"]
-    if "limit" in expected:
-        assert plan["limit"] == expected["limit"]
+    assert body["plan"]["select"], body
+    assert body["result"] is not None, body
 
 
-@pytest.mark.parametrize("question", UNSUPPORTED_QUESTIONS)
-def test_unsupported_question_is_declined(live_client: TestClient, question: str) -> None:
-    body = live_client.post("/analytics/ask", json={"question": question}).json()
+@pytest.mark.parametrize("question", MISSING_DATA_QUESTIONS)
+def test_missing_data_question_is_declined(
+    live_client: TestClient,
+    question: str,
+) -> None:
+    body = live_client.post(
+        "/analytics/ask",
+        json={"question": question, "history": []},
+    ).json()
 
     assert body["status"] == "unsupported", body
+    assert "Missing data" in body["answer"], body
+
+
+def test_follow_up_reuses_previous_validated_query(live_client: TestClient) -> None:
+    first_question = "What is the total payroll in Germany?"
+    first = live_client.post(
+        "/analytics/ask",
+        json={"question": first_question, "history": []},
+    ).json()
+    assert first["status"] == "answered", first
+
+    second = live_client.post(
+        "/analytics/ask",
+        json={
+            "question": "Convert that to INR.",
+            "history": [{"question": first_question, "plan": first["plan"]}],
+        },
+    ).json()
+
+    assert second["status"] == "answered", second
+    assert second["result"]["currency_by_column"], second
+    assert "INR" in second["result"]["currency_by_column"].values(), second
