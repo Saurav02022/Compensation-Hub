@@ -316,9 +316,7 @@ def test_planner_sees_schema_vocabulary_but_never_employee_rows(
     seeded_client: TestClient,
 ) -> None:
     question = "What is our payroll?"
-    planner = FakePlanner(
-        {question: planned({"kind": "aggregate", "metric": "total_payroll"})}
-    )
+    planner = FakePlanner({question: planned({"kind": "aggregate", "metric": "total_payroll"})})
     install(seeded_client, planner)
 
     ask(seeded_client, question)
