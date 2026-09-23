@@ -1,7 +1,6 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cache, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { CompensationPanel } from "@/components/compensation/CompensationPanel";
 import { BackToDirectory } from "@/components/employees/DirectoryMemory";
@@ -12,7 +11,9 @@ import { fetchEmployee } from "@/lib/api/employees";
 import type { Employee } from "@/types/employees";
 import { updateCompensationAction } from "./actions";
 
-const loadEmployee = cache(async (rawId: string): Promise<Employee> => {
+// No generateMetadata here: production builds prefetch every visible directory row, and metadata
+// resolves during that prefetch, which would fetch each listed employee from the API up front.
+async function loadEmployee(rawId: string): Promise<Employee> {
   const employeeId = Number.parseInt(rawId, 10);
   if (!Number.isInteger(employeeId) || employeeId <= 0 || String(employeeId) !== rawId) {
     notFound();
@@ -25,12 +26,6 @@ const loadEmployee = cache(async (rawId: string): Promise<Employee> => {
     }
     throw error;
   }
-});
-
-export async function generateMetadata(props: PageProps<"/employees/[employeeId]">): Promise<Metadata> {
-  const { employeeId } = await props.params;
-  const employee = await loadEmployee(employeeId);
-  return { title: employee.full_name };
 }
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
