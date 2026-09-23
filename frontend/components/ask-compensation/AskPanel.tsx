@@ -138,8 +138,9 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
           {empty && (
             <div>
               <p className="text-[13px] text-ink-secondary">
-                Ask about headcount, total payroll, or average salary, for or by country, department, or job title.
-                Amounts are in USD at the fixed exchange rates.
+                Ask about employees, current compensation, payroll, comparisons, percentages, or currency conversions.
+                If the answer can be derived from available data, Compensation Hub calculates it; otherwise it explains
+                what is missing.
               </p>
               <p className="mt-5 text-xs font-medium text-ink-muted">Examples</p>
               <ul className="mt-1.5 divide-y divide-border rounded-surface border border-border">
