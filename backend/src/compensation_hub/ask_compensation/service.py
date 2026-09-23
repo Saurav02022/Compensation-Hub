@@ -219,9 +219,7 @@ def _metric_scalar(session: Session, metric: Metric, filters: QueryFilters) -> D
 
 
 def _currency_rate(session: Session, currency_code: str) -> Decimal:
-    value = session.scalar(
-        select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code)
-    )
+    value = session.scalar(select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code))
     if value is None:
         raise InvalidPlanError(f"No exchange rate is configured for {currency_code}")
     return Decimal(value)
@@ -307,10 +305,7 @@ def _interpretation(plan: QueryPlan) -> str:
         return text
     if plan.kind == "values":
         assert plan.field is not None
-        return (
-            f"Distinct {DIMENSION_LABELS[plan.field]} values for "
-            f"{_describe_filters(plan.filters)}"
-        )
+        return f"Distinct {DIMENSION_LABELS[plan.field]} values for {_describe_filters(plan.filters)}"
     if plan.kind == "share":
         assert plan.metric is not None and plan.denominator_filters is not None
         return (
@@ -348,8 +343,7 @@ def _analytics_path(plan: QueryPlan) -> str | None:
     ):
         return None
     if any(
-        len(values) > 1
-        for values in (filters.countries, filters.departments, filters.job_titles)
+        len(values) > 1 for values in (filters.countries, filters.departments, filters.job_titles)
     ):
         return None
     params: dict[str, str] = {}
@@ -375,11 +369,11 @@ def _execute_aggregate(session: Session, plan: QueryPlan) -> AskOutcome:
     currency, rate = _metric_currency(session, plan)
 
     if plan.group_by is None:
-        raw = session.execute(
-            _apply_filters(_base_select(expression), plan.filters)
-        ).scalar_one()
-        value = Decimal(int(raw)) if plan.metric == "employee_count" else (
-            None if raw is None else _money(raw)
+        raw = session.execute(_apply_filters(_base_select(expression), plan.filters)).scalar_one()
+        value = (
+            Decimal(int(raw))
+            if plan.metric == "employee_count"
+            else (None if raw is None else _money(raw))
         )
         if value is not None and plan.metric in MONETARY_METRICS:
             value = _converted(value, rate)
@@ -418,8 +412,10 @@ def _execute_aggregate(session: Session, plan: QueryPlan) -> AskOutcome:
         rows: list[dict[str, str | int | None]] = []
         for row in session.execute(statement):
             raw = row.value
-            value = Decimal(int(raw)) if plan.metric == "employee_count" else (
-                None if raw is None else _money(raw)
+            value = (
+                Decimal(int(raw))
+                if plan.metric == "employee_count"
+                else (None if raw is None else _money(raw))
             )
             if value is not None and plan.metric in MONETARY_METRICS:
                 value = _converted(value, rate)
@@ -483,9 +479,7 @@ def _execute_employees(session: Session, plan: QueryPlan) -> AskOutcome:
         "annual_salary": Compensation.annual_salary,
     }[sort_by]
     ordering = (
-        sort_column.desc().nulls_last()
-        if plan.sort == "desc"
-        else sort_column.asc().nulls_last()
+        sort_column.desc().nulls_last() if plan.sort == "desc" else sort_column.asc().nulls_last()
     )
     statement = statement.order_by(
         ordering, Employee.full_name.asc(), Employee.employee_code.asc()
@@ -494,11 +488,7 @@ def _execute_employees(session: Session, plan: QueryPlan) -> AskOutcome:
     rows: list[dict[str, str | int | None]] = []
     for row in session.execute(statement):
         local_salary = None if row.annual_salary is None else _money(row.annual_salary)
-        salary_target = (
-            None
-            if row.salary_usd is None
-            else _converted(_money(row.salary_usd), rate)
-        )
+        salary_target = None if row.salary_usd is None else _converted(_money(row.salary_usd), rate)
         local_compensation = (
             "Not set"
             if local_salary is None or row.currency_code is None
@@ -545,9 +535,7 @@ def _execute_employees(session: Session, plan: QueryPlan) -> AskOutcome:
 def _execute_values(session: Session, plan: QueryPlan) -> AskOutcome:
     assert plan.field is not None
     column = GROUP_COLUMNS[plan.field]
-    statement = _apply_filters(
-        _base_select(column.label("value")), plan.filters
-    ).distinct()
+    statement = _apply_filters(_base_select(column.label("value")), plan.filters).distinct()
     statement = statement.order_by(column.desc() if plan.sort == "desc" else column.asc())
     if plan.limit is not None:
         statement = statement.limit(plan.limit)
@@ -638,9 +626,7 @@ def _execute_compare(session: Session, plan: QueryPlan) -> AskOutcome:
                 status="unsupported",
                 answer=f"{UNSUPPORTED_PREFIX} The comparison value is zero.",
             )
-        value = (((left - right) / abs(right)) * 100).quantize(
-            PERCENT, rounding=ROUND_HALF_UP
-        )
+        value = (((left - right) / abs(right)) * 100).quantize(PERCENT, rounding=ROUND_HALF_UP)
         row_value = f"{value:.2f}"
         display = f"{value:.2f}%"
         result_format = "percent"
