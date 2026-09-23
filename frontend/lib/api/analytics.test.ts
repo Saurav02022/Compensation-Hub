@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { analyticsHref, fetchBreakdown, fetchSummary, filtersFromSearchParams } from "./analytics";
+import {
+  analyticsHref,
+  fetchBreakdown,
+  fetchSummary,
+  filtersFromSearchParams,
+  viewFromSearchParams,
+} from "./analytics";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -80,5 +86,23 @@ describe("analyticsHref", () => {
     expect(analyticsHref({ country: "United States", job_title: "Paralegal" })).toBe(
       "/analytics?country=United+States&job_title=Paralegal",
     );
+  });
+
+  it("adds a non-default breakdown view and omits the defaults", () => {
+    expect(analyticsHref({ country: "India" }, { by: "department", metric: "average" })).toBe(
+      "/analytics?country=India&by=department&metric=average",
+    );
+    expect(analyticsHref({}, { by: "country", metric: "payroll" })).toBe("/analytics");
+  });
+});
+
+describe("viewFromSearchParams", () => {
+  it("reads a supported view and falls back to the default for anything else", () => {
+    expect(viewFromSearchParams({ by: "job_title", metric: "headcount" })).toEqual({ by: "job_title", metric: "headcount" });
+    expect(viewFromSearchParams({ by: "salary; drop", metric: ["average", "payroll"] })).toEqual({
+      by: "country",
+      metric: "average",
+    });
+    expect(viewFromSearchParams({})).toEqual({ by: "country", metric: "payroll" });
   });
 });

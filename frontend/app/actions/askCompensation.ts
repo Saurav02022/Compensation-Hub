@@ -1,6 +1,6 @@
 "use server";
 
-import type { AskOutcome } from "@/components/ask-compensation/AskDrawer";
+import type { AskOutcome } from "@/components/ask-compensation/types";
 import { askCompensation } from "@/lib/api/ask";
 import { ApiError } from "@/lib/api/client";
 

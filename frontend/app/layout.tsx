@@ -1,20 +1,23 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-import { AppHeader } from "@/components/shell/AppHeader";
+import { AppShell } from "@/components/shell/AppShell";
 import { askCompensationAction } from "./actions/askCompensation";
 
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+
 export const metadata: Metadata = {
-  title: "Compensation Hub",
+  title: { default: "Compensation Hub", template: "%s · Compensation Hub" },
   description: "Manage current employee compensation across countries.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en">
-      <body className="min-h-screen">
-        <AppHeader askAction={askCompensationAction} />
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">{children}</main>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+      <body>
+        <AppShell askAction={askCompensationAction}>{children}</AppShell>
       </body>
     </html>
   );

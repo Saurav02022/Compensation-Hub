@@ -2,47 +2,82 @@
 
 @theme {
   --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    "Noto Sans", sans-serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --color-canvas: #f5f6f8;
+  /* Chrome (sidebar, page canvas) sits one step below the white working surface. */
+  --color-canvas: #f6f7f9;
   --color-surface: #ffffff;
-  --color-surface-muted: #f8f9fb;
-  --color-border: #e3e6ea;
-  --color-border-strong: #c9ced6;
+  --color-surface-muted: #f9fafb;
+  --color-surface-hover: #f3f4f6;
+  --color-border: #e6e8ec;
+  --color-border-strong: #d0d4db;
 
-  --color-ink: #16202b;
-  --color-ink-secondary: #4d5966;
-  --color-ink-muted: #75808d;
+  --color-ink: #111827;
+  --color-ink-secondary: #4b5563;
+  --color-ink-muted: #6b7280;
 
-  --color-accent: #2f56c9;
-  --color-accent-hover: #2647a8;
-  --color-accent-soft: #e9eefb;
-  --color-accent-ink: #1e3a8a;
+  /* One accent, used for interaction and the single chart series. */
+  --color-accent: #3451d1;
+  --color-accent-hover: #2a43b3;
+  --color-accent-soft: #eef1fd;
+  --color-accent-ink: #26399a;
+  --color-bar: #6b82e4;
 
-  --color-positive-ink: #14603a;
-  --color-positive-soft: #e6f4ec;
-  --color-warning-ink: #7a4a00;
-  --color-warning-soft: #fdf3e0;
-  --color-negative-ink: #9b1c1c;
-  --color-negative-soft: #fdecec;
+  --color-positive-ink: #166534;
+  --color-positive-soft: #edf8f1;
+  --color-warning-ink: #8a4b06;
+  --color-warning-soft: #fff7e8;
+  --color-negative-ink: #b42318;
+  --color-negative-soft: #fef3f2;
 
   --radius-control: 6px;
   --radius-surface: 8px;
+
+  --shadow-panel: 0 0 0 1px rgb(17 24 39 / 0.06), 0 12px 32px -8px rgb(17 24 39 / 0.18);
+
+  --animate-panel-in: panel-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 120ms ease-out;
+  --animate-progress: progress 1.1s ease-in-out infinite;
+
+  @keyframes panel-in {
+    from {
+      transform: translateX(12px);
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes progress {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(250%);
+    }
+  }
 }
 
 @layer base {
   html {
     color-scheme: light;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background-color: var(--color-canvas);
+    background-color: var(--color-surface);
     color: var(--color-ink);
     font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   :focus-visible {
@@ -55,5 +90,19 @@
   textarea,
   button {
     font: inherit;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-soft);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

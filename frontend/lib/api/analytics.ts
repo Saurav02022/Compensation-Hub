@@ -33,9 +33,42 @@ export function analyticsSearchParams(filters: AnalyticsFilters): URLSearchParam
   return params;
 }
 
-export function analyticsHref(filters: AnalyticsFilters): string {
-  const params = analyticsSearchParams(filters).toString();
-  return params ? `/analytics?${params}` : "/analytics";
+export type AnalyticsMetric = "payroll" | "average" | "headcount";
+
+export interface AnalyticsView {
+  by: GroupBy;
+  metric: AnalyticsMetric;
+}
+
+export const DEFAULT_VIEW: AnalyticsView = { by: "country", metric: "payroll" };
+
+const GROUP_BY_VALUES: readonly GroupBy[] = ["country", "department", "job_title"];
+const METRIC_VALUES: readonly AnalyticsMetric[] = ["payroll", "average", "headcount"];
+
+/** The breakdown sort key that ranks rows by the chosen metric. */
+export const METRIC_SORT: Record<AnalyticsMetric, BreakdownSort> = {
+  payroll: "total_payroll_usd",
+  average: "average_salary_usd",
+  headcount: "employee_count",
+};
+
+/** Reads which breakdown the analytics page shows, falling back to the default for unknown values. */
+export function viewFromSearchParams(searchParams: RawSearchParams): AnalyticsView {
+  const by = firstValue(searchParams.by);
+  const metric = firstValue(searchParams.metric);
+  return {
+    by: GROUP_BY_VALUES.find((value) => value === by) ?? DEFAULT_VIEW.by,
+    metric: METRIC_VALUES.find((value) => value === metric) ?? DEFAULT_VIEW.metric,
+  };
+}
+
+/** Analytics URL for filters and a breakdown view; defaults are omitted so URLs stay clean. */
+export function analyticsHref(filters: AnalyticsFilters, view: Partial<AnalyticsView> = {}): string {
+  const params = analyticsSearchParams(filters);
+  if (view.by && view.by !== DEFAULT_VIEW.by) params.set("by", view.by);
+  if (view.metric && view.metric !== DEFAULT_VIEW.metric) params.set("metric", view.metric);
+  const query = params.toString();
+  return query ? `/analytics?${query}` : "/analytics";
 }
 
 export function hasAnalyticsFilters(filters: AnalyticsFilters): boolean {
