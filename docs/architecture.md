@@ -149,13 +149,13 @@ bounded prior validated intent
 Gemini
       |
       v
-Generic read-only query program
+Generic read-only query AST
       |
       v
-Pydantic structural validation
+Pydantic validation
       |
       v
-Field / operator / value / bound validation
+Application semantic checks
       |
       v
 SQLAlchemy query construction
@@ -163,15 +163,13 @@ SQLAlchemy query construction
       v
 PostgreSQL
       |
-      +---- optional deterministic arithmetic
-      |
       v
 Grounded result
 ```
 
-### Logical query surface
+#### Read-only data surface
 
-The planner can reference only fields exposed by the application:
+The planner can reference only application-owned fields:
 
 ```text
 employee_code
@@ -183,64 +181,64 @@ annual_salary
 currency_code
 salary_usd
 rate_to_usd
-has_compensation
 ```
 
-`salary_usd` is a derived expression using the configured FX rate; it is not a second persisted salary.
+`salary_usd` is derived from current compensation and the stored FX rate; it is not persisted as a second salary.
 
-The generic program can combine safe read-only primitives:
+The query AST is relational rather than question-specific. It supports:
 
 - field projection,
-- exact and text filters,
-- numeric comparisons,
-- distinct values,
+- validated predicates,
+- distinct rows,
 - grouping,
-- ordering,
-- bounded limits,
-- count and count-distinct,
-- sum, average, minimum, maximum, median, standard deviation, variance, and percentile,
-- deterministic arithmetic across scalar query results,
-- normalized monetary conversion through the FX table.
+- ordering by selected aliases,
+- bounded row limits,
+- count, distinct count, sum, average, minimum, maximum, and median,
+- conditional aggregates,
+- arithmetic expressions over validated expressions,
+- deterministic conversion of USD-based monetary expressions through the FX table.
 
-This query language exists so answerability is determined by available data rather than a hard-coded list of natural-language question templates.
+This lets one query representation cover new natural-language questions without adding a handler for every phrasing or metric combination.
 
-### Validation and execution
+#### Validation and execution
 
-Every generated program is validated before execution.
+Every generated plan is validated before execution.
 
 The application enforces:
 
-- an allowlist of fields,
-- an allowlist of filter and aggregate operations,
-- bounded query count and row limits,
-- valid projection and grouping combinations,
-- deterministic handling of local versus normalized salary,
-- current dimension and currency values for exact controlled-value filters,
-- valid references between deterministic calculation steps.
+- a fixed field allowlist,
+- a fixed predicate and aggregate allowlist,
+- valid aggregate/field combinations,
+- grouping rules,
+- bounded expression depth,
+- bounded result limits,
+- current controlled values for country, department, job title, and currency filters,
+- cross-country monetary calculations through `salary_usd`,
+- currency conversion only for USD-based monetary expressions.
 
-The model cannot express insert, update, delete, schema changes, arbitrary SQL, database functions outside the allowlist, or unbounded result retrieval.
+The model cannot represent inserts, updates, deletes, schema changes, arbitrary SQL, unrestricted database functions, or unbounded result retrieval.
 
-The SQL executed by PostgreSQL is constructed by SQLAlchemy from validated application-owned operations.
+All SQL is constructed by application code with SQLAlchemy from validated AST nodes.
 
-### Conversational context
+#### Conversational context
 
-The frontend keeps the conversation across page navigation.
+The frontend keeps Ask Compensation state across page navigation.
 
-For a follow-up turn, the backend may send the planner at most six previous user questions together with their already validated query programs. Previous result rows and compensation values are not replayed to the model.
+For a follow-up turn, the planner receives at most six prior user questions together with their already validated query plans. Prior result rows and salary values are not sent back to the model.
 
-The planner must return a complete new program for the current turn. References such as "that", "same", "only", or "what about" therefore resolve to validated intent rather than to model-generated memory.
+The planner must return a complete plan for the current question. Follow-up wording therefore resolves against validated intent rather than model-generated memory.
 
-### Missing data
+#### Missing data
 
-The language model is expected to return an unsupported result when a required field or source is not present.
+When the requested answer depends on data outside the product schema, Ask Compensation returns an unsupported result naming the missing data or boundary.
 
-The response names the missing data or product boundary rather than estimating, inferring an employee attribute, or substituting external knowledge.
+The application does not infer absent employee attributes from names or other fields and does not substitute external knowledge for missing company data.
 
-RAG and a vector database are not used because the current source of truth is structured relational data. They would become relevant only if the product later introduced unstructured sources that need semantic retrieval.
+RAG and a vector database are not used because the current source of truth is structured relational data. They become relevant only if the product later includes unstructured sources that require semantic retrieval.
 
-### Failure boundary
+#### Failure boundary
 
-Provider-specific code remains behind the planner interface. A provider outage affects Ask Compensation only; the employee directory, compensation management, and deterministic Analytics workspace continue to operate.
+Provider-specific code remains behind the planner interface. A provider outage affects Ask Compensation only; employee search, compensation management, and deterministic Analytics continue to operate.
 
 ## Currency Handling
 
