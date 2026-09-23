@@ -328,18 +328,18 @@ The governing rule is:
 
 > If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
-The language model translates natural language into a generic, constrained read-only program. That program can select stored fields, filter them, aggregate them, group and order results, bound result sets, calculate statistics, perform deterministic arithmetic over scalar query results, and convert normalized monetary values using the configured FX data.
+The language model translates natural language into a generic constrained read-only query AST. The AST is built from application-owned relational primitives: field projection, validated predicates, distinct rows, grouping, ordering, bounded limits, approved aggregates, conditional aggregates, arithmetic expressions, and deterministic FX conversion.
 
-Application code validates every field, operator, value, result bound, and arithmetic reference before constructing SQLAlchemy expressions. The model never supplies executable SQL and cannot represent writes.
+Application code validates the structure and semantics before constructing SQLAlchemy expressions. The model never supplies executable SQL and cannot represent writes.
 
-For conversational follow-ups, the planner receives a bounded history of previous questions and their validated programs. It does not receive previous result rows or compensation values as conversational memory.
+For conversational follow-ups, the planner receives a bounded history of previous questions and their validated plans. It does not receive previous result rows or compensation values as conversational memory.
 
 **Why**
 
-A fixed list of question shapes makes a conversational interface fail on questions that are answerable from data the application already has. The useful product boundary is the available data and the safe read-only operations over that data, not the set of questions anticipated during implementation.
+A fixed list of question shapes makes a conversational interface fail on questions that are answerable from data the application already has. The useful product boundary is the available data and safe read-only operations over that data, not the set of questions anticipated during implementation.
 
-RAG does not solve this problem because the source of truth is structured relational data, not unstructured documents. Free-form text-to-SQL would broaden the execution surface unnecessarily. A constrained query program keeps language interpretation flexible while preserving application-owned validation and execution.
+RAG does not solve this problem because the current source of truth is structured relational data, not unstructured documents. Free-form text-to-SQL would broaden the execution surface unnecessarily. A constrained query AST keeps language interpretation flexible while preserving application-owned validation and execution.
 
 **Trade-off**
 
-The assistant can only derive answers from fields and relationships that exist in Compensation Hub and from operations represented by the validated read-only program. Questions requiring absent fields, historical information, external knowledge, or subjective compensation decisions remain unanswerable and are reported with the missing-data boundary.
+The assistant can only derive answers from fields and relationships that exist in Compensation Hub and from operations represented by the validated AST. Questions requiring absent fields, historical information, external knowledge, or subjective compensation decisions remain unanswerable and are reported with the missing-data boundary.
