@@ -92,8 +92,11 @@ class AggregateExpression(BaseModel):
             if self.distinct and self.field is None:
                 raise ValueError("distinct count requires a field")
             return self
-        if self.field not in ("annual_salary", "salary_usd", "rate_to_usd"):
-            raise ValueError(f"{self.function} requires a numeric field")
+        if self.field not in ("salary_usd", "rate_to_usd"):
+            raise ValueError(
+                f"{self.function} requires salary_usd or rate_to_usd; "
+                "annual_salary cannot be aggregated safely across currencies"
+            )
         if self.distinct:
             raise ValueError("distinct is supported only for count")
         return self
