@@ -192,9 +192,7 @@ def _apply_filters(
     target_currency: str | None,
 ) -> Select[Any]:
     for clause in filters:
-        statement = statement.where(
-            _filter_expression(session, clause, target_currency)
-        )
+        statement = statement.where(_filter_expression(session, clause, target_currency))
     return statement
 
 
@@ -222,9 +220,7 @@ def _validate_controlled_filters(query: DataQuery, context: PlannerContext) -> N
     if query.target_currency is not None and query.target_currency not in set(
         context.currency_codes
     ):
-        raise InvalidProgramError(
-            f"No exchange rate is configured for {query.target_currency}"
-        )
+        raise InvalidProgramError(f"No exchange rate is configured for {query.target_currency}")
 
 
 def _single_currency_filter(query: DataQuery) -> bool:
@@ -266,15 +262,11 @@ def _validate_projection_shape(query: DataQuery) -> None:
         }:
             assert projection.field is not None
             if _field_spec(projection.field).kind != "number":
-                raise InvalidProgramError(
-                    f"{projection.aggregate} requires a numeric field"
-                )
+                raise InvalidProgramError(f"{projection.aggregate} requires a numeric field")
         if projection.aggregate in {"min", "max"}:
             assert projection.field is not None
             if _field_spec(projection.field).kind == "boolean":
-                raise InvalidProgramError(
-                    f"{projection.aggregate} is not valid for boolean fields"
-                )
+                raise InvalidProgramError(f"{projection.aggregate} is not valid for boolean fields")
 
         if (
             projection.field == "annual_salary"
@@ -295,19 +287,13 @@ def _validate_projection_shape(query: DataQuery) -> None:
             for projection in query.select
         ) or any(clause.field == "salary_usd" for clause in query.filters)
         if not uses_normalized_salary:
-            raise InvalidProgramError(
-                "target_currency requires a salary_usd projection or filter"
-            )
+            raise InvalidProgramError("target_currency requires a salary_usd projection or filter")
 
 
 def _rate_to_usd(session: Session, currency_code: str) -> Decimal:
-    rate = session.scalar(
-        select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code)
-    )
+    rate = session.scalar(select(FxRate.rate_to_usd).where(FxRate.currency_code == currency_code))
     if rate is None:
-        raise InvalidProgramError(
-            f"No exchange rate is configured for {currency_code}"
-        )
+        raise InvalidProgramError(f"No exchange rate is configured for {currency_code}")
     return Decimal(rate)
 
 
@@ -361,9 +347,7 @@ def _projection_expression(
     if aggregate == "percentile":
         assert projection.percentile is not None
         return (
-            func.percentile_cont(projection.percentile)
-            .within_group(base)
-            .label(projection.alias),
+            func.percentile_cont(projection.percentile).within_group(base).label(projection.alias),
             currency,
         )
     raise InvalidProgramError(f"Unsupported aggregate {aggregate}")
@@ -404,9 +388,11 @@ def _column_spec(
 
 
 def _query_is_scalar(query: DataQuery) -> bool:
-    return bool(query.select) and all(
-        projection.aggregate is not None for projection in query.select
-    ) and not query.group_by
+    return (
+        bool(query.select)
+        and all(projection.aggregate is not None for projection in query.select)
+        and not query.group_by
+    )
 
 
 def _execute_query(
@@ -423,9 +409,7 @@ def _execute_query(
     alias_expressions: dict[str, Any] = {}
 
     for projection in query.select:
-        expression, currency = _projection_expression(
-            session, projection, query.target_currency
-        )
+        expression, currency = _projection_expression(session, projection, query.target_currency)
         expressions.append(expression)
         alias_expressions[projection.alias] = expression
         column = _column_spec(projection, currency)
@@ -441,9 +425,7 @@ def _execute_query(
     )
 
     if query.group_by:
-        statement = statement.group_by(
-            *[_field_spec(field).expression for field in query.group_by]
-        )
+        statement = statement.group_by(*[_field_spec(field).expression for field in query.group_by])
     if query.distinct:
         statement = statement.distinct()
 
@@ -468,9 +450,7 @@ def _execute_query(
         elif query.distinct:
             statement = statement.order_by(*expressions)
         elif "full_name" in plain_employee_aliases:
-            statement = statement.order_by(
-                Employee.full_name.asc(), Employee.employee_code.asc()
-            )
+            statement = statement.order_by(Employee.full_name.asc(), Employee.employee_code.asc())
         elif "employee_code" in plain_employee_aliases:
             statement = statement.order_by(Employee.employee_code.asc())
         else:
@@ -478,9 +458,7 @@ def _execute_query(
 
     if not _query_is_scalar(query):
         default_limit = (
-            DEFAULT_GROUP_LIMIT
-            if query.group_by or query.distinct
-            else DEFAULT_ROW_LIMIT
+            DEFAULT_GROUP_LIMIT if query.group_by or query.distinct else DEFAULT_ROW_LIMIT
         )
         statement = statement.limit(query.limit or default_limit)
 
@@ -514,9 +492,7 @@ def _resolve_ref(
     if query is None:
         raise InvalidProgramError(f"Calculation references unknown query {ref.query}")
     if len(query.rows) != 1:
-        raise InvalidProgramError(
-            f"Calculation query {ref.query} must return exactly one row"
-        )
+        raise InvalidProgramError(f"Calculation query {ref.query} must return exactly one row")
 
     column = next((column for column in query.columns if column.key == ref.column), None)
     if column is None:
@@ -524,14 +500,10 @@ def _resolve_ref(
             f"Calculation references unknown column {ref.column} in {ref.query}"
         )
     if not column.numeric:
-        raise InvalidProgramError(
-            f"Calculation column {ref.query}.{ref.column} is not numeric"
-        )
+        raise InvalidProgramError(f"Calculation column {ref.query}.{ref.column} is not numeric")
     value = query.rows[0].get(ref.column)
     if value is None:
-        raise InvalidProgramError(
-            f"Calculation column {ref.query}.{ref.column} has no value"
-        )
+        raise InvalidProgramError(f"Calculation column {ref.query}.{ref.column} has no value")
     return _normalize_numeric(value), column
 
 
@@ -548,15 +520,11 @@ def _execute_calculation(
     same_currency = both_currency and left_currency == right_currency
 
     if both_currency and not same_currency:
-        raise InvalidProgramError(
-            "Deterministic arithmetic cannot combine different currencies"
-        )
+        raise InvalidProgramError("Deterministic arithmetic cannot combine different currencies")
 
     if calculation.op in {"add", "subtract"}:
         if (left_currency is None) != (right_currency is None):
-            raise InvalidProgramError(
-                f"{calculation.op} requires operands with compatible units"
-            )
+            raise InvalidProgramError(f"{calculation.op} requires operands with compatible units")
     elif calculation.op == "multiply":
         if both_currency:
             raise InvalidProgramError("multiply cannot combine two monetary values")
@@ -589,9 +557,7 @@ def _execute_calculation(
     elif calculation.op == "ratio":
         value = left / right
     else:
-        raise InvalidProgramError(
-            f"Unsupported calculation operator {calculation.op}"
-        )
+        raise InvalidProgramError(f"Unsupported calculation operator {calculation.op}")
 
     expected_currency: str | None = None
     if calculation.op in {"add", "subtract"} and same_currency:
@@ -603,21 +569,15 @@ def _execute_calculation(
 
     if calculation.format == "currency":
         if expected_currency is None:
-            raise InvalidProgramError(
-                "The requested calculation does not produce a monetary value"
-            )
+            raise InvalidProgramError("The requested calculation does not produce a monetary value")
         currency = expected_currency
     else:
         if expected_currency is not None:
-            raise InvalidProgramError(
-                "A monetary calculation must use currency result formatting"
-            )
+            raise InvalidProgramError("A monetary calculation must use currency result formatting")
         currency = None
 
     if calculation.op in {"percentage", "percent_difference"} and calculation.format != "percent":
-        raise InvalidProgramError(
-            f"{calculation.op} must use percent result formatting"
-        )
+        raise InvalidProgramError(f"{calculation.op} must use percent result formatting")
     if calculation.op == "ratio" and calculation.format in {"currency", "percent", "count"}:
         raise InvalidProgramError("ratio must use numeric result formatting")
 
@@ -655,10 +615,7 @@ def _public_result(query: ExecutedQuery) -> AskResult:
             for column in query.columns
         ],
         rows=[
-            {
-                column.key: _serialized_value(row.get(column.key), column)
-                for column in query.columns
-            }
+            {column.key: _serialized_value(row.get(column.key), column) for column in query.columns}
             for row in query.rows
         ],
     )
@@ -710,10 +667,7 @@ def _answer_for_result(result: AskResult) -> str:
     if result.kind == "scalar" and result.rows and result.columns:
         row = result.rows[0]
         column = result.columns[0]
-        return (
-            f"{column.label}: "
-            f"{_display_value(row.get(column.key), column, result.currency)}."
-        )
+        return f"{column.label}: {_display_value(row.get(column.key), column, result.currency)}."
 
     if len(result.rows) == 1 and result.columns:
         row = result.rows[0]
@@ -745,13 +699,9 @@ def _query_description(query: DataQuery) -> str:
     )
     text = selections
     if query.filters:
-        text += " where " + "; ".join(
-            _filter_description(clause) for clause in query.filters
-        )
+        text += " where " + "; ".join(_filter_description(clause) for clause in query.filters)
     if query.group_by:
-        text += " grouped by " + ", ".join(
-            field.replace("_", " ") for field in query.group_by
-        )
+        text += " grouped by " + ", ".join(field.replace("_", " ") for field in query.group_by)
     if query.target_currency is not None:
         text += f" converted to {query.target_currency}"
     return text
@@ -761,10 +711,7 @@ def _interpretation(program: QueryProgram) -> str:
     descriptions = [_query_description(query) for query in program.queries]
     if program.calculation is None:
         return descriptions[0]
-    return (
-        f"{program.calculation.label}: "
-        + " | ".join(descriptions)
-    )
+    return f"{program.calculation.label}: " + " | ".join(descriptions)
 
 
 def _analytics_path(program: QueryProgram) -> str | None:
@@ -819,9 +766,7 @@ def execute_program(
 ) -> ExecutedProgram:
     """Execute an approved read-only query program and format its grounded result."""
     if len(program.queries) > 1 and program.calculation is None:
-        raise InvalidProgramError(
-            "Multiple queries require an explicit deterministic calculation"
-        )
+        raise InvalidProgramError("Multiple queries require an explicit deterministic calculation")
 
     executed: dict[str, ExecutedQuery] = {}
     for query in program.queries:
