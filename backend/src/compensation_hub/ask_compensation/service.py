@@ -164,10 +164,17 @@ def _parse_boolean(value: str, *, field: DataField) -> bool:
     raise InvalidPlanError(f"{field} requires a boolean filter value")
 
 
-def _typed_values(clause: FilterClause) -> list[str | Decimal | bool]:
+def _typed_values(
+    clause: FilterClause,
+    *,
+    salary_filter_rate: Decimal,
+) -> list[str | Decimal | bool]:
     info = FIELD_INFO[clause.field]
     if info.kind == "number":
-        return [_parse_decimal(value, field=clause.field) for value in clause.values]
+        values = [_parse_decimal(value, field=clause.field) for value in clause.values]
+        if clause.field == "salary_usd" and salary_filter_rate != 1:
+            return [value * salary_filter_rate for value in values]
+        return values
     if info.kind == "boolean":
         return [_parse_boolean(value, field=clause.field) for value in clause.values]
     return list(clause.values)
@@ -177,7 +184,12 @@ def _escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _apply_filter(statement: Select[Any], clause: FilterClause) -> Select[Any]:
+def _apply_filter(
+    statement: Select[Any],
+    clause: FilterClause,
+    *,
+    salary_filter_rate: Decimal,
+) -> Select[Any]:
     info = FIELD_INFO[clause.field]
     expression = info.expression
 
@@ -187,7 +199,7 @@ def _apply_filter(statement: Select[Any], clause: FilterClause) -> Select[Any]:
         predicate = expression.is_(None) if clause.op == "is_null" else expression.is_not(None)
         return statement.where(predicate)
 
-    values = _typed_values(clause)
+    values = _typed_values(clause, salary_filter_rate=salary_filter_rate)
 
     if clause.op in ("contains", "starts_with", "ends_with"):
         if info.kind != "text":
@@ -224,9 +236,18 @@ def _apply_filter(statement: Select[Any], clause: FilterClause) -> Select[Any]:
     raise InvalidPlanError(f"Unsupported filter operator {clause.op}")
 
 
-def _apply_filters(statement: Select[Any], filters: list[FilterClause]) -> Select[Any]:
+def _apply_filters(
+    statement: Select[Any],
+    filters: list[FilterClause],
+    *,
+    salary_filter_rate: Decimal,
+) -> Select[Any]:
     for clause in filters:
-        statement = _apply_filter(statement, clause)
+        statement = _apply_filter(
+            statement,
+            clause,
+            salary_filter_rate=salary_filter_rate,
+        )
     return statement
 
 
@@ -255,7 +276,7 @@ def _aggregate_expression(projection: Projection) -> Any:
         assert projection.field is not None
         return func.count(distinct(field_expression))
     if aggregate == "sum":
-        return func.sum(field_expression)
+        return func.coalesce(func.sum(field_expression), 0)
     if aggregate == "avg":
         return func.avg(field_expression)
     if aggregate == "min":
@@ -355,10 +376,12 @@ def _validate_query(query: DataQuery) -> None:
         if order.key not in aliases:
             raise InvalidPlanError(f"order_by key {order.key} is not a selected alias")
 
-    monetary = [projection for projection in query.select if projection.field == "salary_usd"]
-    if query.target_currency is not None and not monetary:
+    uses_salary_usd = any(
+        projection.field == "salary_usd" for projection in query.select
+    ) or any(clause.field == "salary_usd" for clause in query.filters)
+    if query.target_currency is not None and not uses_salary_usd:
         raise InvalidPlanError(
-            "target_currency requires at least one salary_usd projection"
+            "target_currency requires a salary_usd projection or filter"
         )
 
 
@@ -459,7 +482,11 @@ def _execute_query(session: Session, query: DataQuery) -> ExecutedQuery:
             )
         )
 
-    statement = _apply_filters(_base_select(*selected), query.filters)
+    statement = _apply_filters(
+        _base_select(*selected),
+        query.filters,
+        salary_filter_rate=rate_to_usd,
+    )
 
     if query.group_by:
         statement = statement.group_by(
