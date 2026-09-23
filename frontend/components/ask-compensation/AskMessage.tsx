@@ -5,6 +5,12 @@ import { formatAmount, formatCount } from "@/lib/formatting/money";
 import type { AskResult, AskResultCell, AskResultColumn } from "@/types/ask";
 import type { AskExchange } from "./types";
 
+function formatNumber(value: AskResultCell): string {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return String(value);
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(number);
+}
+
 function displayCell(
   value: AskResultCell | undefined,
   column: AskResultColumn,
@@ -20,7 +26,8 @@ function displayCell(
     const currency = result.currency ?? "USD";
     return `${currency} ${formatAmount(String(value), currency, { whole: true })}`;
   }
-  if (column.format === "percent") return `${value}%`;
+  if (column.format === "percent") return `${formatNumber(value)}%`;
+  if (column.format === "number") return formatNumber(value);
   return String(value);
 }
 
@@ -79,36 +86,6 @@ function TableResult({ result }: { result: AskResult }) {
   );
 }
 
-function EmployeeResult({ result }: { result: AskResult }) {
-  return (
-    <ul className="mt-2 divide-y divide-border rounded-control border border-border">
-      {result.rows.map((row, index) => (
-        <li key={`${row.employee_code ?? index}`} className="px-3 py-2.5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium text-ink">{String(row.employee ?? "Employee")}</p>
-              <p className="mt-0.5 truncate text-[11px] text-ink-muted">
-                {[row.employee_code, row.role, row.country].filter(Boolean).join(" · ")}
-              </p>
-              {row.local_compensation && (
-                <p className="mt-1 text-[11px] text-ink-secondary">
-                  Local: {String(row.local_compensation)}
-                </p>
-              )}
-            </div>
-            {row.salary !== null && row.salary !== undefined && (
-              <p className="shrink-0 text-right text-[12px] font-medium tabular-nums text-ink">
-                {result.currency ?? "USD"}{" "}
-                {formatAmount(String(row.salary), result.currency ?? "USD", { whole: true })}
-              </p>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function Answer({ exchange }: { exchange: AskExchange }) {
   if (exchange.outcome.status !== "answered") return null;
   const { response } = exchange.outcome;
@@ -119,9 +96,11 @@ function Answer({ exchange }: { exchange: AskExchange }) {
 
   return (
     <div className="rounded-surface border border-border bg-surface px-3.5 py-3">
-      {response.result.kind === "scalar" && <ScalarResult result={response.result} />}
-      {response.result.kind === "table" && <TableResult result={response.result} />}
-      {response.result.kind === "employees" && <EmployeeResult result={response.result} />}
+      {response.result.kind === "scalar" ? (
+        <ScalarResult result={response.result} />
+      ) : (
+        <TableResult result={response.result} />
+      )}
 
       <p className="mt-2 text-[13px] text-ink-secondary">{response.answer}</p>
 
