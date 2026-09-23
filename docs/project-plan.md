@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 8 — Product Design and UX Refinement
+**Current phase:** Phase 9 — Product Design Rebuild
 
 ## Status
 
@@ -211,3 +211,24 @@ Requested by the product owner after the end-to-end delivery: make the implement
 
 **Exit condition:** complete — the application uses one visual language, the header is sticky with clear navigation, Ask Compensation is reachable everywhere, directory and analytics remain server-backed, and lint, type, test, and build checks pass.
 
+---
+
+## Phase 9 — Product Design Rebuild
+
+Requested by the product owner after Phase 8: rebuild the interface around patterns observed in current product UI from YC-backed B2B software, so Compensation Hub reads as a focused operational product rather than a generic dashboard, without changing its API, business rules, or architecture.
+
+- [ ] Research product UI from YC-backed HR, finance, data, and analytics products.
+- [ ] Synthesize the research into a design direction for Compensation Hub.
+- [ ] Rebuild the visual foundations: typography, color, density, and the shared primitives.
+- [ ] Replace the top header with a sticky sidebar shell and compact mobile navigation.
+- [ ] Dock Ask Compensation beside the page, reachable from every screen and by keyboard.
+- [ ] Rebuild the employee directory toolbar, table, and pagination for 10,000 records.
+- [ ] Keep directory search, filters, and pagination server-side and URL-addressable.
+- [ ] Rebuild the employee detail page and the salary editing workflow.
+- [ ] Rebuild analytics as one breakdown workspace with exact values beside the bars.
+- [ ] Focus the overview on orientation and next steps.
+- [ ] Design loading, refresh, empty, error, and unavailable states on every surface.
+- [ ] Complete a responsive and accessibility pass.
+- [ ] Review the rendered product visually, refine it, and run the full verification.
+
+**Exit condition:** not complete.
