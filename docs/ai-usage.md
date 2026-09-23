@@ -6,9 +6,11 @@ This document defines how AI is used in Compensation Hub and how AI-assisted dev
 
 ### Ask Compensation
 
-Ask Compensation provides a natural-language interface over the product's existing analytics capabilities.
+Ask Compensation provides a natural-language interface over the employee and compensation data Compensation Hub stores.
 
-Its responsibility is limited to interpreting a user's question and converting it into a supported, structured analytics request.
+If the stored data can answer a question, Ask Compensation derives the answer from that data. If it cannot, Ask Compensation names the data that is missing instead of guessing.
+
+The model's responsibility is limited to interpreting the question, together with any earlier questions it follows up, and expressing it as a structured read-only query, or reporting that the question needs data that is not stored or is not a question about the data.
 
 The flow is:
 
@@ -19,13 +21,13 @@ HR question
 LLM
     |
     v
-Structured Query Plan
+Structured read-only query
     |
     v
-Validation
+Validation against the field catalog and the data
     |
     v
-Analytics Service
+Bounded read-only query execution
     |
     v
 PostgreSQL
@@ -42,26 +44,24 @@ It does not:
 - generate or execute arbitrary SQL,
 - update employee or compensation data,
 - calculate authoritative compensation values,
+- write the answer text,
 - make salary recommendations,
-- decide who should receive a raise.
+- decide who should receive a raise,
+- infer attributes that are not stored, such as gender from a name.
 
-All calculations are performed by deterministic application and database logic.
-
-If a question cannot be represented by the supported analytics model, the product returns a clear unsupported response rather than guessing.
+All calculations are performed by deterministic application and database logic, and answers are composed by application code.
 
 ### Structured Output
 
-The model returns a constrained query plan containing only supported concepts such as:
+The model returns one of three responses:
 
-- metric,
-- filters,
-- grouping,
-- sorting,
-- result limit.
+- a query over the catalog fields: filters, employee rows or aggregate measures, grouping, conditional measures, arithmetic over measures, conditions on grouped results, ordering, a bounded limit, and an answer currency,
+- a missing-data response naming the data the question needs,
+- an unsupported response for requests that are not questions about the data.
 
-The backend validates the plan before execution.
+The backend validates every query before execution. The query representation cannot express a write, and the database transaction that runs it is read-only.
 
-Invalid or unsupported output is rejected before it reaches the analytics layer.
+Invalid or unsupported output is rejected before any data is read.
 
 ### Reliability
 
@@ -80,15 +80,14 @@ The product must never fall back to invented compensation results.
 
 Automated tests do not depend on live LLM calls.
 
-The LLM boundary is mocked so tests can verify:
+The query engine is tested directly with structured queries whose expected results are computed independently from the seed data. The LLM boundary is mocked so tests can also verify:
 
-- valid query plans,
-- invalid query plans,
-- unsupported questions,
-- filtering and grouping behavior,
-- attempts to use AI for write operations.
+- valid, malformed, and internally inconsistent queries,
+- missing-data and unsupported responses,
+- follow-up context and its bounds,
+- attempts to use AI for write operations or SQL injection.
 
-A small set of live-model evaluation cases may be run separately to verify that representative natural-language questions map to the expected structured requests.
+A small set of live-model evaluation cases may be run separately to check that varied natural-language questions, follow-ups, questions needing absent data, and adversarial requests map to the expected results. They evaluate interpretation; they do not define which questions are supported.
 
 ## AI-Assisted Development
 
@@ -408,6 +407,41 @@ How it was verified: 66 frontend tests, eslint, tsc, and next build; CI green;
   a live Ask question, an unsupported question, and the panel across
   navigation all passed; no warnings, errors, or non-200 responses in either
   service log after the deploy.
+```
+
+```text
+Date: 2026-09-23
+Tool: Claude Code
+Task: Data-grounded Ask Compensation
+How AI was used: Researched Gemini structured output, Pydantic, SQLAlchemy, and
+  PostgreSQL aggregate semantics; compared a fixed intent catalogue, RAG, free-
+  form text-to-SQL, and a validated query representation; designed and built the
+  field catalog, query representation, validation, read-only execution, answer
+  composition, follow-up context, the generic result rendering in the panel, the
+  tests, and the live evaluation.
+What was accepted: A general read-only query representation validated against a
+  field catalog instead of fixed metrics (D019); follow-up context carried as
+  earlier validated queries, never results (D020); exact medians from
+  percentile_disc because percentile_cont computes in double precision; salary
+  thresholds and answer currencies converted with the seeded rates; queries run in
+  a READ ONLY transaction with a statement timeout; answers and labels composed by
+  application code.
+What was changed or rejected: The first live run returned plans containing only
+  the schema's required keys, so every schema property is now required with
+  nulls or empty lists where unused; the Gemini API rejected the schema with
+  maxItems on nested arrays, so array bounds are enforced by Pydantic only; the
+  default thinking level exceeded the request timeout on one question, and low
+  thinking halved planning latency with the same results; RAG and an
+  orchestration framework were rejected because they do not address validation,
+  execution, or money semantics.
+How it was verified: 191 backend tests, ruff, and mypy; 70 frontend tests,
+  eslint, tsc, and next build from a fresh clone; the 15-case live evaluation
+  passed on five consecutive runs, three with the final low-thinking
+  configuration; questions written after implementation, a four-turn
+  follow-up, missing-data and unsupported requests, a salary edit reflected in
+  an answer and then restored, and the directory, detail, and analytics pages
+  were exercised against the seeded database, with figures checked by
+  independent SQL; the provider-unavailable response was checked with no key.
 ```
 
 ## Working Principle

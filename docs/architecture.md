@@ -57,7 +57,7 @@ Search, filter, pagination, and analytics state are represented in URLs where us
 
 FastAPI exposes the product API.
 
-Pydantic validates API contracts and structured Ask Compensation plans.
+Pydantic validates API contracts and the structured queries Ask Compensation plans.
 
 SQLAlchemy owns query construction and database access.
 
@@ -132,9 +132,19 @@ Aggregations execute in PostgreSQL rather than loading the full employee dataset
 
 ### Ask Compensation
 
-Responsible for converting supported natural-language questions into constrained analytics operations.
+Responsible for converting natural-language questions into validated read-only queries over the stored employee and compensation data, running them in PostgreSQL, and explaining which data is missing when a question cannot be answered.
 
-It does not own compensation calculations. Validated plans are executed through the same analytics capability used by the rest of the application, so natural-language answers and analytics views share one source of truth.
+It is organized by responsibility:
+
+- `catalog` — the fields Ask Compensation can reason about and the operations each field kind allows,
+- `plan` — the query representation the model produces, with its structural limits,
+- `validation` — checks a query against the catalog, the category values in the data, and the configured currencies,
+- `execution` — turns a validated query into one bounded SQLAlchemy SELECT in a read-only transaction,
+- `answers` — composes the answer text, the plain-language reading of the query, and the matching Analytics view,
+- `provider` — the planner interface and the Gemini adapter,
+- `service` and `router` — orchestration and the HTTP boundary.
+
+Ask Compensation reads the same tables with the same joins and salary normalization as Analytics, so equivalent questions give the same figures.
 
 ---
 
@@ -228,76 +238,95 @@ The backend validates the salary amount and currency before persistence.
 
 ### Analytics
 
-The analytics endpoints expose the same analytics service used by Ask Compensation. There is no separate calculation path for natural-language answers.
+The analytics endpoints expose the analytics service behind the Overview and Analytics pages. Ask Compensation runs its own validated queries but uses the same joins and the same `salary_in_usd` expression, and its tests compare results with this service.
+
+### Ask Compensation
+
+`POST /analytics/ask` takes a question and up to four earlier questions with the validated queries they produced. It returns the status (`answered`, `missing_data`, or `unsupported`), the answer text, the validated query, a plain-language reading of it, the result as typed columns and rows, and the equivalent Analytics view when one exists.
 
 ---
 
 ## Ask Compensation
 
-Natural-language analytics follows a constrained flow:
+Ask Compensation answers a question from the stored data whenever the question can be expressed as a supported read-only query, and says which data is missing otherwise.
 
 ```text
-HR question
+HR question (+ earlier questions and their validated queries)
     |
     v
-Gemini
+Gemini: planning only
     |
     v
-Structured Query Plan
+Structured query or a missing-data / unsupported response
     |
     v
-Pydantic Validation
+Pydantic structure checks
     |
     v
-Analytics Service
+Validation against the field catalog, category values, and currencies
     |
     v
-SQLAlchemy
+One bounded SELECT in a read-only PostgreSQL transaction
     |
     v
-PostgreSQL
-    |
-    v
-Exact Result
+Exact result, composed into an answer by application code
 ```
 
-A plan can contain supported concepts such as:
+### Field catalog
+
+The catalog is the complete description of what Ask Compensation can know:
 
 ```text
-metric
-filters
-group_by
-sort
-limit
+employee_code   text       filter; count
+full_name       text       filter; count
+country         category   filter; group; count
+department      category   filter; group; count
+job_title       category   filter; group; count
+currency        category   filter; group; count
+salary          money      filter; count, sum, avg, median, min, max; order
+local_salary    money      employee rows only, in the employee's own currency
 ```
 
-Supported metrics include:
+`salary` is `annual_salary * rate_to_usd`, expressed in the query's answer currency. `local_salary` is never aggregated or compared, because amounts in different currencies cannot be combined. A field that is not in the catalog does not exist for Ask Compensation; exposing a new attribute means adding it to the catalog deliberately.
+
+### Query representation
+
+A query is either a list of employee rows or a set of aggregate measures:
 
 ```text
-employee_count
-average_salary
-total_payroll
+kind            rows | aggregate
+filters         conditions on catalog fields, all of which must hold
+fields          fields to show (rows)
+group_by        up to two category fields (aggregate)
+measures        count, count_distinct, sum, avg, median, min, max, each with optional own filters
+calculations    add, subtract, multiply, divide, percent over measures, earlier calculations, or numbers
+having          conditions on measures or calculations
+order_by        fields (rows) or grouped fields, measures, and calculations (aggregate)
+limit           at most 100 rows or groups; employee lists default to 25
+currency        the answer currency, USD unless another configured currency is asked for
 ```
 
-Supported dimensions include:
+The representation has no way to name a table, write SQL, or describe a write.
 
-```text
-country
-department
-job_title
-```
+### Validation and execution
 
-The model is responsible for language interpretation only.
+The application, not the model, decides what is valid. Before any data is read it checks that every field exists in the catalog, every operation suits its field kind, category values exist in the data (matched without regard to case), currencies have a seeded rate, names are unique and references point backwards, arithmetic combines compatible units (no money multiplied by money, no money added to a headcount), expressions nest at most three levels, and limits are within bounds.
 
-It:
+Execution builds one SELECT over employees LEFT JOIN compensation LEFT JOIN fx_rates, with every plan value bound as a parameter, inside a `READ ONLY` transaction with a statement timeout. Employees without compensation count as employees but contribute no salary. Text matching escapes wildcard characters. Division by a zero aggregate yields no value rather than an error. Medians average the lower and upper middle values from `percentile_disc`, so they stay exact NUMERIC values; `percentile_cont` would compute in double precision. Row and group results that hit their limit also report the total number of matches.
+
+### Conversation
+
+The frontend keeps the conversation in the application shell and sends up to four earlier answered questions with their validated queries. The planner receives them as prior turns and must still return a complete query, which is validated like any other. Result rows are never sent back to the model.
+
+### Model boundary
+
+The planner receives the question, the prior turns, the catalog, the category values present in the data, and the configured currency codes. It:
 
 - has no database credentials,
 - does not generate executable SQL,
 - cannot perform writes,
-- does not calculate authoritative compensation values,
-- does not receive the complete employee dataset.
-
-The backend validates every generated plan before execution. Unsupported questions are rejected rather than approximated.
+- does not calculate or phrase authoritative values,
+- does not receive employee records or results.
 
 Provider-specific code is isolated behind a small planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
 
@@ -371,7 +400,7 @@ The final application shell keeps the primary product areas available while pres
 - Analytics dimension, measure, and filter state are URL-addressable.
 - Ask Compensation is available across primary pages.
 - The assistant remains beside the page on wide screens and uses an overlay presentation at narrower widths.
-- Supported Ask Compensation results can link into the corresponding Analytics view.
+- Ask Compensation answers that correspond to an Analytics view link into it.
 
 These are presentation choices; product rules and authoritative calculations remain in the backend.
 
@@ -388,7 +417,7 @@ Analytics                works
 Ask Compensation         unavailable
 ```
 
-Invalid model output is rejected before reaching the analytics layer.
+Invalid model output is rejected before any data is read.
 
 Database or application failures return controlled API errors rather than partial compensation results.
 

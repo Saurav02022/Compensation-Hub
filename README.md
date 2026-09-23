@@ -16,7 +16,7 @@ The application is deployed on Google Cloud Run in India.
 - View and update an employee's current annual salary.
 - Keep employee compensation in local currency while using USD for cross-country analytics.
 - View employee count, total annual payroll, average annual salary, and compensation breakdowns.
-- Ask supported compensation questions in natural language through **Ask Compensation**.
+- Ask compensation questions in natural language, including follow-ups, through **Ask Compensation**.
 
 ## Compensation Model
 
@@ -28,30 +28,30 @@ The MVP manages current compensation only. Salary history, payroll processing, a
 
 ## Ask Compensation
 
-Ask Compensation provides natural-language access to the product's existing analytics capabilities.
+If Compensation Hub stores the data a question needs, Ask Compensation derives the answer from that data. If it does not, Ask Compensation says which data is missing instead of guessing.
 
 ```text
-HR question
+HR question (+ earlier questions in the conversation)
     |
     v
 LLM
     |
     v
-Validated structured query
+Structured read-only query
     |
     v
-Analytics service
+Validation against the stored fields and data
     |
     v
-PostgreSQL
+PostgreSQL (read-only transaction)
     |
     v
-Authoritative result
+Exact result
 ```
 
-The LLM interprets intent; it is not the source of truth.
+Questions are not matched against a fixed list. The model expresses each question as a query over the stored fields (filters, employee rows, counts, totals, averages, medians, minimums and maximums, grouping, shares, differences, and currency conversion with the seeded rates), and the backend validates it before running it. Follow-up questions such as "Convert that to INR" refine the previous question.
 
-It does not receive database credentials, execute arbitrary SQL, update compensation data, or calculate authoritative compensation values.
+The LLM interprets intent; it is not the source of truth. It does not receive database credentials or employee records, does not write SQL, cannot change data, and does not calculate or phrase the figures in an answer.
 
 ## Architecture
 

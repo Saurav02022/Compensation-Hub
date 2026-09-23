@@ -150,7 +150,7 @@ The API is intentionally designed around supported product workflows rather than
 
 ## D009 — Use AI for language understanding, not authoritative calculation
 
-Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured analytics request.
+Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured read-only query (see D019).
 
 Application code validates that request and PostgreSQL performs the actual calculation.
 
@@ -170,7 +170,7 @@ Keeping interpretation probabilistic and calculation deterministic gives the AI 
 
 **Trade-off**
 
-Ask Compensation can answer only questions supported by the product's analytics model.
+Ask Compensation can answer only questions that the validated query representation can express over the stored data.
 
 ---
 
@@ -317,3 +317,44 @@ Removing that metadata fetch keeps directory navigation bounded to the list and 
 **Trade-off**
 
 Employee detail browser tabs show the generic Compensation Hub title instead of the employee's name.
+
+---
+
+## D019 — Answer Ask Compensation questions through a validated, general read-only query representation
+
+Ask Compensation no longer maps questions onto a fixed set of analytics metrics. The model produces a query in a small, explicit representation: filters, employee rows or aggregate measures, grouping by category fields, conditional measures, arithmetic over measures, conditions on grouped results, ordering, a bounded limit, and an answer currency.
+
+What the assistant can know is defined by a field catalog in the backend: employee code, name, country, department, job title, salary currency, salary normalized through the seeded exchange rates, and local salary. Each field's kind decides which filters, aggregates, and groupings apply. A question that needs anything else is answered with the data that is missing.
+
+The application validates every query against the catalog and the current data before running it as one bounded SELECT in a read-only transaction: field names, operations per field kind, category values, currencies, units in arithmetic, expression depth, names and references, and result limits. Category values are checked against the values present in the data. Salary thresholds and results in other currencies are converted with the seeded rates, and medians are exact NUMERIC values.
+
+**Why**
+
+The earlier fixed-metric plan rejected questions such as medians, employee lookups, percentages, and cross-country comparisons even though the stored data could answer them. The product rule is that a question answerable from the stored data should be answered from it, and a question that is not should name what is missing.
+
+The alternatives were weighed against that rule:
+
+- A fixed intent catalogue only answers anticipated questions and grows with every new phrasing.
+- RAG or a vector store retrieves unstructured text; the source of truth is relational data that needs exact filtering and aggregation (D010).
+- Free-form text-to-SQL answers anything but cannot be verified before it runs, and would give the model the whole database surface.
+- An orchestration framework would add a dependency without solving validation, execution, or money semantics, which the existing stack already handles.
+
+A validated query representation keeps the model responsible only for interpretation, makes the application the authority on what is valid, and lets a new question be answered without new code whenever it can be expressed over the catalog.
+
+**Trade-off**
+
+The representation cannot express everything SQL can: conditions combine with AND only (an OR within one field is expressed with "in"), grouping is limited to two category fields, arithmetic is limited to three nested levels, and results are limited to 100 rows or groups. Ask Compensation results are computed by their own query path rather than the Analytics endpoints; both use the same joins and salary normalization, and tests compare them.
+
+---
+
+## D020 — Carry follow-up context as validated queries, not results
+
+Follow-up questions are interpreted with up to four earlier questions and the validated queries they produced. The client holds the conversation and sends that history with each question; the backend validates its shape and passes it to the planner as prior turns. Result rows and figures are never sent back to the model.
+
+**Why**
+
+Questions such as "Convert that to INR" or "What about Engineering only?" only make sense against the previous question. The previous validated query states exactly what was computed, is small, and contains no computed results, so it gives the model the context it needs without exposing results or growing without bound.
+
+**Trade-off**
+
+Context is limited to the most recent four answered questions and is lost when the conversation is cleared or the page is reloaded. A currency or filter chosen earlier in the conversation can carry into later questions; every answer states its currency and filters so this is visible.

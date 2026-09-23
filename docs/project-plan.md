@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 7 — Final Product Review and Delivery (demo recording pending)
+**Current phase:** Phase 10 — Data-Grounded Ask Compensation (the Phase 7 demo recording is still pending)
 
 ## Status
 
@@ -233,3 +233,27 @@ A second design pass rebuilt the interface around patterns observed in current B
 - [x] Redeploy the rebuilt frontend to Cloud Run and verify it in production.
 
 **Exit condition:** complete — the product runs in a sticky sidebar shell with Ask Compensation docked beside every page and on Ctrl/⌘ K, the directory and analytics stay server-backed and URL-addressable with bounded requests, analytics shows every measure beside its bars in one drill-down workspace, and lint, type, test, and build checks pass.
+
+---
+
+## Phase 10 — Data-Grounded Ask Compensation
+
+Ask Compensation rejected questions the stored data could answer because it mapped every question onto a fixed set of analytics metrics. This phase makes it answer any question that can be expressed over the stored data, and name the missing data otherwise.
+
+- [x] Review the Ask Compensation implementation and the stored data model.
+- [x] Research structured output, query validation, and aggregate semantics, and compare architectural options.
+- [x] Define the field catalog that decides answerability.
+- [x] Define a general, bounded, read-only query representation.
+- [x] Validate queries against the catalog, the category values in the data, and the configured currencies.
+- [x] Execute validated queries as one bounded SELECT in a read-only transaction.
+- [x] Report missing data and unsupported requests explicitly.
+- [x] Carry follow-up context as earlier validated queries, never results.
+- [x] Render any result generically in the Ask Compensation panel.
+- [x] Test the query engine directly, the API with a mocked planner, and the panel.
+- [x] Update the live-model evaluation with varied, follow-up, missing-data, and adversarial questions.
+- [x] Verify end to end against the seeded database and review query performance.
+- [x] Record the decisions and update the documentation.
+- [ ] Redeploy to Cloud Run after review.
+
+**Exit condition:** questions answerable from the stored data are answered from it through validated read-only queries, including follow-ups; questions needing absent data name what is missing; lint, type, test, and build checks pass.
+
