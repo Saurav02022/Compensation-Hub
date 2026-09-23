@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { openAskCompensation } from "@/components/ask-compensation/launcher";
 import type { AskOutcome } from "@/components/ask-compensation/types";
+import type { QueryProgram } from "@/types/ask";
 import { AppShell } from "./AppShell";
 
 let pathname = "/employees/4";
@@ -55,6 +56,62 @@ describe("AppShell", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+
+  it("passes prior validated intent to a conversational follow-up", async () => {
+    pathname = "/";
+    const plan: QueryProgram = {
+      queries: [
+        {
+          name: "answer",
+          select: [{ alias: "total_payroll", field: "salary_usd", aggregate: "sum" }],
+          filters: [{ field: "country", op: "eq", values: ["Germany"] }],
+          group_by: [],
+          order_by: [],
+          distinct: false,
+          limit: null,
+          target_currency: null,
+        },
+      ],
+      calculation: null,
+    };
+    const firstOutcome: AskOutcome = {
+      status: "answered",
+      response: {
+        status: "answered",
+        question: "What is the total payroll in Germany?",
+        answer: "Total Payroll: USD 1,000.00.",
+        interpretation: "Total Payroll for country = Germany",
+        plan,
+        result: {
+          kind: "scalar",
+          currency: "USD",
+          columns: [{ key: "total_payroll", label: "Total Payroll", format: "currency" }],
+          rows: [{ total_payroll: "1000.00" }],
+        },
+        analytics_path: "/analytics?metric=payroll&country=Germany",
+      },
+    };
+    const action = vi
+      .fn()
+      .mockResolvedValueOnce(firstOutcome)
+      .mockResolvedValueOnce({ status: "unavailable", message: "Stop after verifying history." });
+
+    renderShell(action);
+    act(() => openAskCompensation("What is the total payroll in Germany?"));
+
+    await waitFor(() =>
+      expect(action).toHaveBeenCalledWith("What is the total payroll in Germany?", []),
+    );
+
+    const input = screen.getByRole("textbox", { name: "Question" });
+    await userEvent.type(input, "Convert that to INR.{Enter}");
+
+    await waitFor(() =>
+      expect(action).toHaveBeenLastCalledWith("Convert that to INR.", [
+        { question: "What is the total payroll in Germany?", plan },
+      ]),
+    );
+  });
   it("asks a question handed over by a page and shows the outcome", async () => {
     pathname = "/";
     const action = renderShell();
