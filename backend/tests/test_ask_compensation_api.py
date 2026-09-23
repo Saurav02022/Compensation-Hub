@@ -284,9 +284,7 @@ def test_percentage_uses_generic_expression_tree(seeded_client: TestClient) -> N
     )
     whole = aggregate("count")
     percentage = binary("multiply", binary("divide", part, whole), literal(100))
-    query_plan = plan(
-        [item("share", "Employee share", percentage, "percent")]
-    )
+    query_plan = plan([item("share", "Employee share", percentage, "percent")])
     install(seeded_client, FakePlanner({question: planned(query_plan)}))
     expected_count = seeded_client.get(
         "/analytics/summary",
@@ -371,9 +369,7 @@ def test_comparison_uses_generic_conditional_aggregates(seeded_client: TestClien
         where=[predicate("country", "equals", second_country)],
     )
     difference = binary("subtract", left, right)
-    query_plan = plan(
-        [item("difference", "Headcount difference", difference, "count")]
-    )
+    query_plan = plan([item("difference", "Headcount difference", difference, "count")])
     install(seeded_client, FakePlanner({question: planned(query_plan)}))
 
     body = ask(seeded_client, question)
@@ -546,9 +542,7 @@ def test_question_history_and_row_limit_are_bounded(seeded_client: TestClient) -
     assert seeded_client.post("/analytics/ask", json={"question": "hi"}).status_code == 422
     assert seeded_client.post("/analytics/ask", json={"question": "x" * 501}).status_code == 422
 
-    valid_plan = plan(
-        [item("count", "Count", aggregate("count"), "count")]
-    )
+    valid_plan = plan([item("count", "Count", aggregate("count"), "count")])
     history = [{"question": "How many employees?", "plan": valid_plan}] * 7
     response = seeded_client.post(
         "/analytics/ask",
