@@ -87,8 +87,7 @@ def test_plan_includes_only_validated_plan_history_not_result_rows() -> None:
         PlannerTurn(
             question="What is the total payroll in Germany?",
             plan_json=(
-                '{"kind":"aggregate","metric":"total_payroll",'
-                '"filters":{"countries":["Germany"]}}'
+                '{"kind":"aggregate","metric":"total_payroll","filters":{"countries":["Germany"]}}'
             ),
         ),
     )
