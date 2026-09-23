@@ -56,19 +56,22 @@ If a question requires data the product does not store, the response identifies 
 
 ### Structured Output
 
-The validated query model supports a bounded set of read-only operations:
+The model returns a generic read-only query program rather than SQL or a question-specific command.
 
-- aggregates: employee count, total payroll, average, minimum, maximum, and median salary,
-- filtering and grouping over stored fields,
-- bounded employee lookup and compensation ranking,
-- distinct stored values,
-- percentages,
-- direct comparisons,
-- deterministic currency conversion using seeded FX rates.
+The program is built from application-owned primitives:
 
-A plan cannot represent an insert, update, delete, schema change, or arbitrary SQL statement.
+- approved stored or derived fields,
+- validated filter operators,
+- projection and distinct selection,
+- grouping and ordering,
+- bounded result limits,
+- approved statistical aggregates,
+- deterministic arithmetic over scalar query results,
+- FX conversion for normalized monetary values.
 
-Referenced dimension values and target currencies are checked against current database values before execution.
+The application validates the program before SQLAlchemy constructs any database query. A generated response cannot represent an insert, update, delete, schema change, arbitrary SQL fragment, unrestricted database function, or unbounded result fetch.
+
+Exact controlled-value filters and target currencies are checked against current database values before execution.
 
 ### Contextual Follow-ups
 
@@ -110,10 +113,11 @@ Routine automated tests do not depend on live LLM calls.
 
 The planner boundary is mocked so the suite can verify:
 
-- valid and invalid plans,
+- valid and invalid query programs,
 - contextual follow-up history,
 - missing-data responses,
-- filtering, grouping, ranking, percentages, comparisons, and FX conversion,
+- generic filtering, projection, grouping, ordering, aggregation, arithmetic, and FX behavior,
+- result bounds,
 - rejection of SQL-like or write-like model output,
 - provider failure isolation.
 
