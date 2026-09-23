@@ -1,7 +1,8 @@
 """Optional live-model evaluation for Ask Compensation.
 
-Excluded from the default test run and CI. It verifies that representative questions are
-translated into the generic read-only query program and that missing-data questions are declined.
+Excluded from the default test run and CI. It verifies that Gemini can translate varied,
+answerable questions into the generic read-only query AST and that questions requiring data
+outside the schema are declined without guessing.
 """
 
 import pytest
@@ -13,19 +14,21 @@ from compensation_hub.core.config import Settings
 
 pytestmark = pytest.mark.live
 
-SUPPORTED_QUESTIONS = [
-    "What is the average salary in Engineering?",
+ANSWERABLE_QUESTIONS = [
+    "How many employees are in Engineering?",
+    "Which departments have the highest average salary?",
     "What is the median salary in Sales?",
     "Who are the five highest-paid Engineering employees in India?",
     "What percentage of employees are in Engineering?",
-    "Which three countries have the highest payroll?",
-    "What currencies are used in Germany?",
+    "Which currencies are used in Germany?",
+    "How much larger is Germany's payroll than India's?",
+    "Show employees whose names contain Patel.",
 ]
 
-UNSUPPORTED_QUESTIONS = [
+MISSING_DATA_QUESTIONS = [
     "How many male engineers are based in India?",
-    "What was Michael Nguyen's salary last year?",
-    "Who should get a raise this year?",
+    "What was the total payroll last year?",
+    "Which employees have the highest performance rating?",
 ]
 
 
@@ -40,8 +43,8 @@ def live_client(seeded_client: TestClient) -> TestClient:
     return seeded_client
 
 
-@pytest.mark.parametrize("question", SUPPORTED_QUESTIONS)
-def test_answerable_questions_produce_valid_read_only_programs(
+@pytest.mark.parametrize("question", ANSWERABLE_QUESTIONS)
+def test_answerable_question_produces_data_grounded_result(
     live_client: TestClient,
     question: str,
 ) -> None:
@@ -51,12 +54,12 @@ def test_answerable_questions_produce_valid_read_only_programs(
     ).json()
 
     assert body["status"] == "answered", body
-    assert body["plan"]["queries"], body
+    assert body["plan"]["select"], body
     assert body["result"] is not None, body
 
 
-@pytest.mark.parametrize("question", UNSUPPORTED_QUESTIONS)
-def test_questions_requiring_unavailable_or_subjective_data_are_declined(
+@pytest.mark.parametrize("question", MISSING_DATA_QUESTIONS)
+def test_missing_data_question_is_declined(
     live_client: TestClient,
     question: str,
 ) -> None:
@@ -66,10 +69,10 @@ def test_questions_requiring_unavailable_or_subjective_data_are_declined(
     ).json()
 
     assert body["status"] == "unsupported", body
-    assert "data available in Compensation Hub" in body["answer"]
+    assert "Missing data" in body["answer"], body
 
 
-def test_follow_up_reuses_previous_validated_program(live_client: TestClient) -> None:
+def test_follow_up_reuses_previous_validated_query(live_client: TestClient) -> None:
     first_question = "What is the total payroll in Germany?"
     first = live_client.post(
         "/analytics/ask",
@@ -80,11 +83,11 @@ def test_follow_up_reuses_previous_validated_program(live_client: TestClient) ->
     second = live_client.post(
         "/analytics/ask",
         json={
-            "question": "Convert that to Indian currency.",
+            "question": "Convert that to INR.",
             "history": [{"question": first_question, "plan": first["plan"]}],
         },
     ).json()
 
     assert second["status"] == "answered", second
-    assert second["result"]["currency"] == "INR", second
-    assert second["plan"]["queries"][-1]["target_currency"] == "INR", second
+    assert second["result"]["currency_by_column"], second
+    assert "INR" in second["result"]["currency_by_column"].values(), second
