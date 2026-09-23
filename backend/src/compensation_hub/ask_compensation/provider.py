@@ -171,7 +171,7 @@ def build_system_instruction(context: PlannerContext) -> str:
         f"- country/currency pairs in the data: {country_currency}",
         "",
         "A filters object may contain:",
-        '- countries, departments, job_titles, currency_codes: arrays of exact values from the',
+        "- countries, departments, job_titles, currency_codes: arrays of exact values from the",
         "  lists above. Use multiple values for comparisons such as Germany versus India.",
         "- employee_code: exact employee code",
         "- name_contains: case-insensitive name text supplied by the user",
