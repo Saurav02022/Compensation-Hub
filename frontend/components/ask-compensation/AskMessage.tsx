@@ -1,15 +1,7 @@
-import Link from "next/link";
-
 import { Icon } from "@/components/ui/Icon";
 import { formatAmount, formatCount } from "@/lib/formatting/money";
 import type { AskResult, AskResultCell, AskResultColumn } from "@/types/ask";
 import type { AskExchange } from "./types";
-
-function formatNumber(value: AskResultCell): string {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(number);
-}
 
 function displayCell(
   value: AskResultCell | undefined,
@@ -22,12 +14,20 @@ function displayCell(
     const number = typeof value === "number" ? value : Number(value);
     return Number.isFinite(number) ? formatCount(number) : String(value);
   }
+
   if (column.format === "currency") {
-    const currency = result.currency ?? "USD";
-    return `${currency} ${formatAmount(String(value), currency, { whole: true })}`;
+    const currency = result.currency_by_column[column.key];
+    if (!currency) return String(value);
+    return currency + " " + formatAmount(String(value), currency, { whole: true });
   }
-  if (column.format === "percent") return `${formatNumber(value)}%`;
-  if (column.format === "number") return formatNumber(value);
+
+  if (column.format === "percent") return String(value) + "%";
+  if (column.format === "number") {
+    const number = Number(value);
+    return Number.isFinite(number)
+      ? number.toLocaleString("en-US", { maximumFractionDigits: 2 })
+      : String(value);
+  }
   return String(value);
 }
 
@@ -104,20 +104,9 @@ function Answer({ exchange }: { exchange: AskExchange }) {
 
       <p className="mt-2 text-[13px] text-ink-secondary">{response.answer}</p>
 
-      {(response.interpretation || response.analytics_path) && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-2 text-xs">
-          {response.interpretation && (
-            <p className="text-ink-muted">Read as: {response.interpretation}</p>
-          )}
-          {response.analytics_path && (
-            <Link
-              href={response.analytics_path}
-              className="inline-flex items-center gap-1 font-medium text-accent hover:text-accent-hover hover:underline"
-            >
-              Open in Analytics
-              <Icon name="arrowRight" size={13} />
-            </Link>
-          )}
+      {response.interpretation && (
+        <div className="mt-3 border-t border-border pt-2 text-xs">
+          <p className="text-ink-muted">Read as: {response.interpretation}</p>
         </div>
       )}
     </div>
@@ -133,7 +122,7 @@ export function AskMessage({ exchange, onRetry }: AskMessageProps) {
   const { question, outcome } = exchange;
 
   return (
-    <article className="flex flex-col gap-2" aria-label={`Question: ${question}`}>
+    <article className="flex flex-col gap-2" aria-label={"Question: " + question}>
       <p className="ml-10 self-end rounded-surface bg-surface-hover px-3 py-2 text-[13px] text-ink">
         {question}
       </p>
