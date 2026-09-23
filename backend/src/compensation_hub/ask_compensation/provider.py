@@ -97,8 +97,8 @@ def _predicate_schema() -> dict[str, object]:
                     {"type": "string"},
                     {"type": "number"},
                     {"type": "boolean"},
-                    {"type": "null"},
-                ]
+                ],
+                "nullable": True,
             },
             "values": {
                 "type": "array",
