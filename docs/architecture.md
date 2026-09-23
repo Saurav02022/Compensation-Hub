@@ -132,166 +132,115 @@ Aggregations execute in PostgreSQL rather than loading the full employee dataset
 
 ### Ask Compensation
 
-Responsible for converting natural-language questions into validated read-only operations over data Compensation Hub actually stores.
+Ask Compensation is a constrained natural-language interface over the employee, current-compensation, and FX data model.
 
-The planner can express aggregates, employee lookup and ranking, distinct stored values, percentages, comparisons, currency conversion, and bounded conversational follow-ups. Application code owns the executable query construction; the model never emits SQL that is sent to PostgreSQL.
+The governing contract is:
 
-Ask Compensation and the deterministic Analytics pages share the same employee, compensation, FX, and normalization semantics even when Ask Compensation needs a query shape that the dashboard does not expose.
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
----
-
-## Data Model
-
-The MVP uses three core relational models.
-
-### Employee
-
-```text
-id
-employee_code
-full_name
-country
-department
-job_title
-```
-
-`employee_code` is unique.
-
-### Compensation
-
-```text
-employee_id
-annual_salary
-currency_code
-```
-
-Each employee has one current compensation record.
-
-Compensation is modeled separately from employee identity so compensation rules remain isolated without introducing salary-history complexity.
-
-### FX Rate
-
-```text
-currency_code
-rate_to_usd
-```
-
-Rates are deterministic seeded values.
-
-Cross-country analytics calculate normalized salary when needed:
-
-```text
-salary_in_usd = annual_salary * rate_to_usd
-```
-
-Normalized salary is not persisted as a second salary value, avoiding duplicated monetary data that could diverge from the configured exchange rate.
-
----
-
-## API
-
-The backend API is intentionally small and aligned with product workflows.
-
-```text
-GET    /health
-
-GET    /employees
-GET    /employees/filter-options
-GET    /employees/{employee_id}
-
-PATCH  /employees/{employee_id}/compensation
-
-GET    /analytics/summary
-GET    /analytics/breakdown
-
-POST   /analytics/ask
-```
-
-### Employee listing
-
-`GET /employees` supports:
-
-- page,
-- page size,
-- search,
-- country,
-- department,
-- job title.
-
-Search, filtering, ordering, and pagination are executed in PostgreSQL.
-
-`GET /employees/filter-options` returns the distinct countries, departments, and job titles used by exact-match directory filters.
-
-### Compensation update
-
-`PATCH /employees/{employee_id}/compensation` updates current compensation only.
-
-The backend validates the salary amount and currency before persistence.
-
-### Analytics
-
-The analytics endpoints expose the fixed overview and breakdown capabilities used by the deterministic Analytics workspace. Ask Compensation uses the same database models and normalization rule, but can construct additional validated read-only query shapes such as median, employee ranking, percentages, and comparisons.
-
----
-
-## Ask Compensation
-
-Natural-language questions follow a constrained, read-only flow:
+The request path is:
 
 ```text
 Current question
       +
-prior validated plans
+bounded prior validated intent
       |
       v
 Gemini
       |
       v
-Structured read-only plan
+Generic read-only query program
       |
       v
-Pydantic validation
+Pydantic structural validation
+      |
+      v
+Field / operator / value / bound validation
       |
       v
 SQLAlchemy query construction
       |
       v
-PostgreSQL / deterministic calculation
+PostgreSQL
+      |
+      +---- optional deterministic arithmetic
       |
       v
 Grounded result
 ```
 
-The planner receives schema vocabulary derived from the database and, for follow-up questions, at most six prior user questions with their already validated plans. It does not receive previous result rows or salary values as conversation memory.
+### Logical query surface
 
-The plan supports bounded operations such as:
+The planner can reference only fields exposed by the application:
 
-- count, total payroll, average, minimum, maximum, and median,
-- filters over country, department, job title, currency, employee code, name, normalized salary, and compensation presence,
-- grouping, sorting, and result limits,
-- employee lookup and ranking,
-- distinct stored values,
-- percentages and direct comparisons,
-- conversion of monetary results to a currency present in the seeded FX table.
+```text
+employee_code
+full_name
+country
+department
+job_title
+annual_salary
+currency_code
+salary_usd
+rate_to_usd
+has_compensation
+```
 
-This allows questions such as "Who are the five highest-paid Engineering employees in India?", "What percentage of employees are in Engineering?", or the follow-up "Convert that to INR" when the preceding validated plan establishes what "that" means.
+`salary_usd` is a derived expression using the configured FX rate; it is not a second persisted salary.
 
-The model is responsible for language interpretation only. It:
+The generic program can combine safe read-only primitives:
 
-- has no database credentials,
-- does not generate executable SQL,
-- cannot perform writes,
-- does not calculate authoritative compensation values,
-- does not receive the complete employee dataset,
-- cannot invent a field that is absent from the product data.
+- field projection,
+- exact and text filters,
+- numeric comparisons,
+- distinct values,
+- grouping,
+- ordering,
+- bounded limits,
+- count and count-distinct,
+- sum, average, minimum, maximum, median, standard deviation, variance, and percentile,
+- deterministic arithmetic across scalar query results,
+- normalized monetary conversion through the FX table.
 
-The backend validates both the shape of the plan and referenced dimension/currency values before execution. SQLAlchemy constructs the executable query from approved operations.
+This query language exists so answerability is determined by available data rather than a hard-coded list of natural-language question templates.
 
-When a question requires unavailable data, the response explains the missing field or boundary instead of approximating. For example, gender-filtered questions remain unanswerable because gender is not stored.
+### Validation and execution
 
-RAG and a vector database are not part of this path because the source of truth is structured relational data. Provider-specific code remains isolated behind the planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
+Every generated program is validated before execution.
 
----
+The application enforces:
+
+- an allowlist of fields,
+- an allowlist of filter and aggregate operations,
+- bounded query count and row limits,
+- valid projection and grouping combinations,
+- deterministic handling of local versus normalized salary,
+- current dimension and currency values for exact controlled-value filters,
+- valid references between deterministic calculation steps.
+
+The model cannot express insert, update, delete, schema changes, arbitrary SQL, database functions outside the allowlist, or unbounded result retrieval.
+
+The SQL executed by PostgreSQL is constructed by SQLAlchemy from validated application-owned operations.
+
+### Conversational context
+
+The frontend keeps the conversation across page navigation.
+
+For a follow-up turn, the backend may send the planner at most six previous user questions together with their already validated query programs. Previous result rows and compensation values are not replayed to the model.
+
+The planner must return a complete new program for the current turn. References such as "that", "same", "only", or "what about" therefore resolve to validated intent rather than to model-generated memory.
+
+### Missing data
+
+The language model is expected to return an unsupported result when a required field or source is not present.
+
+The response names the missing data or product boundary rather than estimating, inferring an employee attribute, or substituting external knowledge.
+
+RAG and a vector database are not used because the current source of truth is structured relational data. They would become relevant only if the product later introduced unstructured sources that need semantic retrieval.
+
+### Failure boundary
+
+Provider-specific code remains behind the planner interface. A provider outage affects Ask Compensation only; the employee directory, compensation management, and deterministic Analytics workspace continue to operate.
 
 ## Currency Handling
 
