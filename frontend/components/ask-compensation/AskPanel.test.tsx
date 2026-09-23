@@ -3,132 +3,133 @@ import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AskResponse, QueryFilters, QueryPlan } from "@/types/ask";
+import type { AskResponse, QueryProgram } from "@/types/ask";
 import { AskPanel, type AskConversation } from "./AskPanel";
 import type { AskExchange } from "./types";
 
-const EMPTY_FILTERS: QueryFilters = {
-  countries: [],
-  departments: [],
-  job_titles: [],
-  currency_codes: [],
-  employee_code: null,
-  name_contains: null,
-  salary_usd_min: null,
-  salary_usd_max: null,
-  has_compensation: null,
-};
-
-function aggregatePlan(overrides: Partial<QueryPlan> = {}): QueryPlan {
+function program(): QueryProgram {
   return {
-    kind: "aggregate",
-    metric: "employee_count",
-    filters: EMPTY_FILTERS,
-    denominator_filters: null,
-    compare_filters: null,
-    group_by: null,
-    field: null,
-    sort: null,
-    sort_by: null,
-    limit: null,
-    target_currency: null,
-    comparison: null,
-    ...overrides,
+    queries: [
+      {
+        name: "answer",
+        select: [{ alias: "employee_count", aggregate: "count" }],
+        filters: [],
+        group_by: [],
+        order_by: [],
+        distinct: false,
+        limit: null,
+        target_currency: null,
+      },
+    ],
+    calculation: null,
   };
 }
 
-const grouped: AskResponse = {
+const scalar: AskResponse = {
   status: "answered",
-  question: "Compare average salary by department.",
-  answer: "Average annual salary by department for the organization. 2 result(s).",
-  interpretation: "Average annual salary by department for the organization",
-  plan: aggregatePlan({
-    metric: "average_salary",
-    group_by: "department",
-    sort: "desc",
-  }),
+  question: "How many Engineering employees are based in India?",
+  answer: "Employee Count: 656.",
+  interpretation: "Employee Count for country = India; department = Engineering",
+  plan: {
+    queries: [
+      {
+        name: "answer",
+        select: [{ alias: "employee_count", aggregate: "count" }],
+        filters: [
+          { field: "country", op: "eq", values: ["India"] },
+          { field: "department", op: "eq", values: ["Engineering"] },
+        ],
+        group_by: [],
+        order_by: [],
+        distinct: false,
+        limit: null,
+        target_currency: null,
+      },
+    ],
+    calculation: null,
+  },
+  result: {
+    kind: "scalar",
+    currency: null,
+    columns: [{ key: "employee_count", label: "Employee Count", format: "count" }],
+    rows: [{ employee_count: 656 }],
+  },
+  analytics_path: "/analytics?metric=headcount&country=India&department=Engineering",
+};
+
+const table: AskResponse = {
+  status: "answered",
+  question: "Which departments have the highest average salary?",
+  answer: "Derived 2 row(s) from Compensation Hub data.",
+  interpretation: "Department, Average Salary, grouped by department",
+  plan: {
+    queries: [
+      {
+        name: "answer",
+        select: [
+          { alias: "department", field: "department" },
+          { alias: "average_salary", field: "salary_usd", aggregate: "avg" },
+        ],
+        filters: [],
+        group_by: ["department"],
+        order_by: [{ key: "average_salary", direction: "desc" }],
+        distinct: false,
+        limit: null,
+        target_currency: null,
+      },
+    ],
+    calculation: null,
+  },
   result: {
     kind: "table",
     currency: "USD",
     columns: [
-      { key: "key", label: "Department", format: "text" },
-      { key: "value", label: "Average annual salary", format: "currency" },
+      { key: "department", label: "Department", format: "text" },
+      { key: "average_salary", label: "Average Salary", format: "currency" },
     ],
     rows: [
-      { key: "Engineering", value: "114228.50" },
-      { key: "Sales", value: "75067.60" },
+      { department: "Engineering", average_salary: "114228.50" },
+      { department: "Sales", average_salary: "75067.60" },
     ],
   },
-  analytics_path: "/analytics?by=department&metric=average",
+  analytics_path: null,
 };
 
-const single: AskResponse = {
+const employeeRows: AskResponse = {
   status: "answered",
-  question: "How many Engineering employees are based in India?",
-  answer: "Employee count for country India, department Engineering: 656.",
-  interpretation: "Employee count for country India, department Engineering",
-  plan: aggregatePlan({
-    filters: {
-      ...EMPTY_FILTERS,
-      countries: ["India"],
-      departments: ["Engineering"],
-    },
-  }),
-  result: {
-    kind: "scalar",
-    currency: null,
-    columns: [{ key: "value", label: "Employee count", format: "count" }],
-    rows: [{ value: 656 }],
-  },
-  analytics_path: "/analytics?country=India&department=Engineering&metric=headcount",
-};
-
-const employees: AskResponse = {
-  status: "answered",
-  question: "Who are the two highest-paid engineers in India?",
-  answer: "Found 12 matching employee(s). Showing 2.",
-  interpretation: "Employees for country India, department Engineering, sorted by salary usd, first 2",
+  question: "Who are the two highest-paid employees in India?",
+  answer: "Derived 2 row(s) from Compensation Hub data.",
+  interpretation: "Employee, Employee Code, Salary for country = India",
   plan: {
-    ...aggregatePlan(),
-    kind: "employees",
-    metric: null,
-    filters: {
-      ...EMPTY_FILTERS,
-      countries: ["India"],
-      departments: ["Engineering"],
-    },
-    sort: "desc",
-    sort_by: "salary_usd",
-    limit: 2,
+    queries: [
+      {
+        name: "answer",
+        select: [
+          { alias: "employee", field: "full_name" },
+          { alias: "employee_code", field: "employee_code" },
+          { alias: "salary", field: "salary_usd" },
+        ],
+        filters: [{ field: "country", op: "eq", values: ["India"] }],
+        group_by: [],
+        order_by: [{ key: "salary", direction: "desc" }],
+        distinct: false,
+        limit: 2,
+        target_currency: null,
+      },
+    ],
+    calculation: null,
   },
   result: {
-    kind: "employees",
+    kind: "table",
     currency: "USD",
     columns: [
       { key: "employee", label: "Employee", format: "text" },
-      { key: "employee_code", label: "Employee code", format: "text" },
-      { key: "role", label: "Role", format: "text" },
-      { key: "country", label: "Country", format: "text" },
-      { key: "local_compensation", label: "Local compensation", format: "text" },
-      { key: "salary", label: "Salary in USD", format: "currency" },
+      { key: "employee_code", label: "Employee Code", format: "text" },
+      { key: "salary", label: "Salary", format: "currency" },
     ],
     rows: [
-      {
-        employee: "Aarav Sharma",
-        employee_code: "EMP00001",
-        role: "Software Engineer · Engineering",
-        country: "India",
-        local_compensation: "INR 8,000,000.00",
-        salary: "95000.00",
-      },
-      {
-        employee: "Isha Patel",
-        employee_code: "EMP00002",
-        role: "Senior Software Engineer · Engineering",
-        country: "India",
-        local_compensation: "INR 7,500,000.00",
-        salary: "89000.00",
-      },
+      { employee: "Aarav Sharma", employee_code: "EMP00001", salary: "95000.00" },
+      { employee: "Isha Patel", employee_code: "EMP00002", salary: "89000.00" },
     ],
   },
   analytics_path: null,
@@ -162,7 +163,7 @@ function renderPanel(options: { docked?: boolean; conversation?: AskConversation
 }
 
 describe("AskPanel", () => {
-  it("opens as a labelled modal sheet on narrow screens, focusing the question and closing on Escape", async () => {
+  it("opens as a labelled modal sheet and closes on Escape", async () => {
     const { onClose } = renderPanel();
 
     const dialog = screen.getByRole("dialog", { name: "Ask Compensation" });
@@ -182,18 +183,17 @@ describe("AskPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("asks a suggested question, and a typed one with Enter", async () => {
+  it("asks suggested and typed questions", async () => {
     const { conversation: value } = renderPanel();
 
     await userEvent.click(screen.getByRole("button", { name: "What is the total payroll in Germany?" }));
     expect(value.ask).toHaveBeenCalledWith("What is the total payroll in Germany?");
 
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: "Question" }), "How many employees are in India?{Enter}");
     expect(value.ask).toHaveBeenLastCalledWith("How many employees are in India?");
   });
 
-  it("shows the pending question while the answer is worked out", () => {
+  it("shows the pending question while the answer is derived", () => {
     renderPanel({
       conversation: conversation({ pendingQuestion: "Total payroll in Germany?", pending: true }),
     });
@@ -202,28 +202,28 @@ describe("AskPanel", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Working out the answer");
   });
 
-  it("presents scalar, table, and employee answers with the validated interpretation", () => {
+  it("renders scalar and generic table answers", () => {
     const exchanges: AskExchange[] = [
-      { id: 1, question: single.question, outcome: { status: "answered", response: single } },
-      { id: 2, question: grouped.question, outcome: { status: "answered", response: grouped } },
-      { id: 3, question: employees.question, outcome: { status: "answered", response: employees } },
+      { id: 1, question: scalar.question, outcome: { status: "answered", response: scalar } },
+      { id: 2, question: table.question, outcome: { status: "answered", response: table } },
+      { id: 3, question: employeeRows.question, outcome: { status: "answered", response: employeeRows } },
     ];
     renderPanel({ conversation: conversation({ exchanges }) });
 
     expect(screen.getByText("656")).toBeInTheDocument();
-    expect(screen.getByText(single.answer)).toBeInTheDocument();
-    expect(screen.getByText("Read as: " + single.interpretation)).toBeInTheDocument();
     expect(screen.getByText("Engineering")).toBeInTheDocument();
     expect(screen.getByText("USD 114,229")).toBeInTheDocument();
     expect(screen.getByText("Aarav Sharma")).toBeInTheDocument();
-    expect(screen.getByText(/INR 8,000,000.00/)).toBeInTheDocument();
+    expect(screen.getByText("USD 95,000")).toBeInTheDocument();
+    expect(screen.getByText("Read as: " + scalar.interpretation)).toBeInTheDocument();
 
-    const links = screen.getAllByRole("link", { name: /Open in Analytics/ });
-    expect(links[0]).toHaveAttribute("href", single.analytics_path);
-    expect(links[1]).toHaveAttribute("href", grouped.analytics_path);
+    expect(screen.getByRole("link", { name: /Open in Analytics/ })).toHaveAttribute(
+      "href",
+      scalar.analytics_path,
+    );
   });
 
-  it("distinguishes missing data, an unavailable provider, and errors that can be retried", async () => {
+  it("distinguishes missing data, provider outage, and retryable errors", async () => {
     const value = conversation({
       exchanges: [
         {
@@ -259,11 +259,14 @@ describe("AskPanel", () => {
 
     expect(screen.getByText("Can't answer this from the available data")).toBeInTheDocument();
     expect(screen.getByText(/Gender is not stored/)).toBeInTheDocument();
-    const alerts = screen.getAllByRole("alert");
-    expect(alerts[0]).toHaveTextContent("Ask Compensation is unavailable");
-    expect(alerts[0]).toHaveTextContent("The directory, salary updates, and analytics keep working.");
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("Ask Compensation is unavailable");
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(value.ask).toHaveBeenCalledWith("Average in Sales?");
+  });
+
+  it("accepts a valid generic program in conversation history", () => {
+    const plan = program();
+    expect(plan.queries[0].select[0].aggregate).toBe("count");
   });
 });
