@@ -120,20 +120,22 @@ It defines the order of work and the exit condition for each phase. Product scop
 
 ## Phase 4 — Ask Compensation
 
-- [x] Define the constrained analytics query-plan schema.
+- [x] Define a generic constrained read-only query AST over the available product data.
 - [x] Add the LLM provider behind a small backend interface.
-- [x] Convert supported natural-language questions into structured query plans.
-- [x] Validate every generated plan before execution.
-- [x] Execute valid plans through the existing analytics capability.
-- [x] Return clear responses for unsupported or invalid questions.
-- [x] Ensure the AI path cannot mutate employee or compensation data.
-- [x] Handle LLM-provider failure without affecting core workflows.
-- [x] Build the Ask Compensation frontend experience.
-- [x] Add deterministic tests with the LLM boundary mocked.
-- [x] Add a small optional live-model evaluation set.
-- [x] Record meaningful AI-assisted engineering work in `ai-usage.md`.
+- [x] Translate natural-language questions into the generic query AST rather than a fixed question catalog.
+- [x] Validate every generated plan structurally and semantically before execution.
+- [x] Construct database operations with SQLAlchemy; do not execute model-generated SQL.
+- [x] Support projection, filtering, distinct values, grouping, ordering, bounded limits, aggregates, conditional aggregates, arithmetic, and FX conversion.
+- [x] Carry bounded prior validated intent for conversational follow-up questions.
+- [x] Return the missing data boundary when a question cannot be derived from available data.
+- [x] Ensure Ask Compensation remains read-only.
+- [x] Handle provider failure without affecting core workflows.
+- [x] Build generic scalar/table result rendering in the frontend.
+- [x] Add deterministic tests with the provider boundary mocked.
+- [x] Add an optional live-model evaluation set covering varied answerable and missing-data questions.
+- [x] Record the product AI boundary in `ai-usage.md`.
 
-**Exit condition:** complete — supported questions are mapped by Gemini to validated query plans and answered by the same analytics service as the overview page; with no provider configured or the provider failing, the API returns a clear 503 for Ask Compensation while the directory, compensation updates, and analytics keep working.
+**Exit condition:** complete — Ask Compensation can derive read-only answers from the employee, current-compensation, and FX data through a validated generic query AST; questions requiring unavailable data identify that gap, and a provider failure does not affect the directory, compensation updates, or deterministic analytics.
 
 ---
 
@@ -233,3 +235,26 @@ A second design pass rebuilt the interface around patterns observed in current B
 - [x] Redeploy the rebuilt frontend to Cloud Run and verify it in production.
 
 **Exit condition:** complete — the product runs in a sticky sidebar shell with Ask Compensation docked beside every page and on Ctrl/⌘ K, the directory and analytics stay server-backed and URL-addressable with bounded requests, analytics shows every measure beside its bars in one drill-down workspace, and lint, type, test, and build checks pass.
+
+
+---
+
+## Phase 10 — Data-Grounded Ask Compensation
+
+Generalize the conversational assistant so answerability is determined by the data Compensation Hub has, not by a fixed list of anticipated question shapes.
+
+- [x] Define the product contract: derive an answer whenever the required stored data is available; otherwise identify the missing data.
+- [x] Replace the fixed analytics-plan shape with a generic constrained read-only query program.
+- [x] Expose only approved employee, current-compensation, normalized salary, and FX fields to the planner.
+- [x] Validate filter operators, projections, aggregates, grouping, ordering, row limits, currency handling, and arithmetic references before execution.
+- [x] Construct all executable database operations with SQLAlchemy; do not execute model-generated SQL.
+- [x] Keep every result set bounded.
+- [x] Carry a bounded history of previous questions and validated programs so follow-up turns can refine prior intent.
+- [x] Keep previous result rows and salary values out of model conversation history.
+- [x] Return a specific missing-data boundary rather than infer absent employee attributes or external facts.
+- [x] Preserve the provider-outage boundary so core product workflows remain independent of the language model.
+- [x] Render generic scalar and tabular results in the existing assistant.
+- [x] Expand deterministic tests and the optional live-model evaluation around the data-grounding contract.
+- [x] Reconcile requirements, decisions, architecture, README, and AI-usage documentation.
+
+**Exit condition:** complete — Ask Compensation uses a generic validated read-only query language over Compensation Hub data, supports bounded conversational refinement, derives authoritative results through PostgreSQL and deterministic application code, and refuses only when the required data or permitted operation is unavailable.

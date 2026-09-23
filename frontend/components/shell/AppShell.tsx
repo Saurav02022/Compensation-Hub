@@ -18,10 +18,10 @@ const NAVIGATION: { href: string; label: string; icon: IconName }[] = [
 ];
 
 export const SUGGESTED_QUESTIONS = [
-  "What is the average salary in Engineering?",
   "What is the total payroll in Germany?",
-  "Compare average salary by department.",
-  "How many Engineering employees are based in India?",
+  "Who are the five highest-paid Engineering employees in India?",
+  "What percentage of employees are in Engineering?",
+  "What currencies are used in Germany?",
   "Which three countries have the highest payroll?",
 ];
 

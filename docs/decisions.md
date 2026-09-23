@@ -150,9 +150,9 @@ The API is intentionally designed around supported product workflows rather than
 
 ## D009 — Use AI for language understanding, not authoritative calculation
 
-Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured analytics request.
+Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured read-only data request.
 
-Application code validates that request and PostgreSQL performs the actual calculation.
+Application code validates that request and constructs the database operation with SQLAlchemy. PostgreSQL and deterministic application logic perform the authoritative query or calculation.
 
 The LLM does not:
 
@@ -170,7 +170,7 @@ Keeping interpretation probabilistic and calculation deterministic gives the AI 
 
 **Trade-off**
 
-Ask Compensation can answer only questions supported by the product's analytics model.
+Ask Compensation can answer only questions that can be represented by the validated read-only query model and derived from data the product actually stores.
 
 ---
 
@@ -266,7 +266,7 @@ Natural-language analytics is most useful while the HR Manager is already workin
 
 **Trade-off**
 
-The application shell owns additional cross-page state and responsive behavior. The assistant remains intentionally limited to supported compensation analytics rather than becoming a general conversational workspace.
+The application shell owns additional cross-page state and responsive behavior. The assistant remains read-only and grounded in Compensation Hub data rather than becoming an unrestricted general-purpose chatbot.
 
 ---
 
@@ -317,3 +317,29 @@ Removing that metadata fetch keeps directory navigation bounded to the list and 
 **Trade-off**
 
 Employee detail browser tabs show the generic Compensation Hub title instead of the employee's name.
+
+---
+
+## D019 — Ask Compensation is data-grounded, not question-list-driven
+
+Ask Compensation is defined by the data available to the product rather than by a fixed catalogue of supported questions.
+
+The governing rule is:
+
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
+
+The language model translates natural language into a generic constrained read-only query AST. The AST is built from application-owned relational primitives: field projection, validated predicates, distinct rows, grouping, ordering, bounded limits, approved aggregates, conditional aggregates, arithmetic expressions, and deterministic FX conversion.
+
+Application code validates the structure and semantics before constructing SQLAlchemy expressions. The model never supplies executable SQL and cannot represent writes.
+
+For conversational follow-ups, the planner receives a bounded history of previous questions and their validated plans. It does not receive previous result rows or compensation values as conversational memory.
+
+**Why**
+
+A fixed list of question shapes makes a conversational interface fail on questions that are answerable from data the application already has. The useful product boundary is the available data and safe read-only operations over that data, not the set of questions anticipated during implementation.
+
+RAG does not solve this problem because the current source of truth is structured relational data, not unstructured documents. Free-form text-to-SQL would broaden the execution surface unnecessarily. A constrained query AST keeps language interpretation flexible while preserving application-owned validation and execution.
+
+**Trade-off**
+
+The assistant can only derive answers from fields and relationships that exist in Compensation Hub and from operations represented by the validated AST. Questions requiring absent fields, historical information, external knowledge, or subjective compensation decisions remain unanswerable and are reported with the missing-data boundary.

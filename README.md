@@ -16,7 +16,7 @@ The application is deployed on Google Cloud Run in India.
 - View and update an employee's current annual salary.
 - Keep employee compensation in local currency while using USD for cross-country analytics.
 - View employee count, total annual payroll, average annual salary, and compensation breakdowns.
-- Ask supported compensation questions in natural language through **Ask Compensation**.
+- Ask read-only questions about available employee and compensation data in natural language through **Ask Compensation**, including contextual follow-ups.
 
 ## Compensation Model
 
@@ -28,30 +28,38 @@ The MVP manages current compensation only. Salary history, payroll processing, a
 
 ## Ask Compensation
 
-Ask Compensation provides natural-language access to the product's existing analytics capabilities.
+Ask Compensation is a natural-language, read-only interface over data Compensation Hub actually stores.
+
+Its product contract is simple:
+
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
+
+The assistant is not implemented as a list of supported question templates. Gemini translates the HR manager's language into a generic constrained read-only query AST over the application's approved data vocabulary. The backend validates that program, constructs the allowed SQLAlchemy operations, and lets PostgreSQL and deterministic application code produce the authoritative result.
 
 ```text
-HR question
-    |
-    v
-LLM
-    |
-    v
-Validated structured query
-    |
-    v
-Analytics service
-    |
-    v
-PostgreSQL
-    |
-    v
-Authoritative result
+Question + validated conversation context
+                 |
+                 v
+              Gemini
+                 |
+                 v
+       read-only query AST
+                 |
+                 v
+       validation + SQLAlchemy
+                 |
+                 v
+             PostgreSQL
+                 |
+                 v
+        deterministic result
 ```
 
-The LLM interprets intent; it is not the source of truth.
+The model has no database credentials, does not emit SQL that the application executes, cannot write data, and does not calculate authoritative compensation figures itself.
 
-It does not receive database credentials, execute arbitrary SQL, update compensation data, or calculate authoritative compensation values.
+Conversation context contains prior questions and validated query plans, not previous employee result rows or salary values. If the question depends on a field that is not stored, the assistant returns the missing-data boundary instead of inferring it.
+
+RAG is not used for the current data path because the source of truth is structured relational data. It would be appropriate only if unstructured product sources were introduced later.
 
 ## Architecture
 

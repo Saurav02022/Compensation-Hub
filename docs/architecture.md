@@ -132,176 +132,113 @@ Aggregations execute in PostgreSQL rather than loading the full employee dataset
 
 ### Ask Compensation
 
-Responsible for converting supported natural-language questions into constrained analytics operations.
+Ask Compensation is a constrained natural-language interface over the employee, current-compensation, and FX data model.
 
-It does not own compensation calculations. Validated plans are executed through the same analytics capability used by the rest of the application, so natural-language answers and analytics views share one source of truth.
+The governing contract is:
 
----
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
 
-## Data Model
-
-The MVP uses three core relational models.
-
-### Employee
+The request path is:
 
 ```text
-id
+Current question
+      +
+bounded prior validated intent
+      |
+      v
+Gemini
+      |
+      v
+Generic read-only query AST
+      |
+      v
+Pydantic validation
+      |
+      v
+Application semantic checks
+      |
+      v
+SQLAlchemy query construction
+      |
+      v
+PostgreSQL
+      |
+      v
+Grounded result
+```
+
+#### Read-only data surface
+
+The planner can reference only application-owned fields:
+
+```text
 employee_code
 full_name
 country
 department
 job_title
-```
-
-`employee_code` is unique.
-
-### Compensation
-
-```text
-employee_id
 annual_salary
 currency_code
-```
-
-Each employee has one current compensation record.
-
-Compensation is modeled separately from employee identity so compensation rules remain isolated without introducing salary-history complexity.
-
-### FX Rate
-
-```text
-currency_code
+salary_usd
 rate_to_usd
 ```
 
-Rates are deterministic seeded values.
+`salary_usd` is derived from current compensation and the stored FX rate; it is not persisted as a second salary.
 
-Cross-country analytics calculate normalized salary when needed:
+The query AST is relational rather than question-specific. It supports:
 
-```text
-salary_in_usd = annual_salary * rate_to_usd
-```
+- field projection,
+- validated predicates,
+- distinct rows,
+- grouping,
+- ordering by selected aliases,
+- bounded row limits,
+- count, distinct count, sum, average, minimum, maximum, and median,
+- conditional aggregates,
+- arithmetic expressions over validated expressions,
+- deterministic conversion of USD-based monetary expressions through the FX table.
 
-Normalized salary is not persisted as a second salary value, avoiding duplicated monetary data that could diverge from the configured exchange rate.
+This lets one query representation cover new natural-language questions without adding a handler for every phrasing or metric combination.
 
----
+#### Validation and execution
 
-## API
+Every generated plan is validated before execution.
 
-The backend API is intentionally small and aligned with product workflows.
+The application enforces:
 
-```text
-GET    /health
+- a fixed field allowlist,
+- a fixed predicate and aggregate allowlist,
+- valid aggregate/field combinations,
+- grouping rules,
+- bounded expression depth,
+- bounded result limits,
+- current controlled values for country, department, job title, and currency filters,
+- cross-country monetary calculations through `salary_usd`,
+- currency conversion only for USD-based monetary expressions.
 
-GET    /employees
-GET    /employees/filter-options
-GET    /employees/{employee_id}
+The model cannot represent inserts, updates, deletes, schema changes, arbitrary SQL, unrestricted database functions, or unbounded result retrieval.
 
-PATCH  /employees/{employee_id}/compensation
+All SQL is constructed by application code with SQLAlchemy from validated AST nodes.
 
-GET    /analytics/summary
-GET    /analytics/breakdown
+#### Conversational context
 
-POST   /analytics/ask
-```
+The frontend keeps Ask Compensation state across page navigation.
 
-### Employee listing
+For a follow-up turn, the planner receives at most six prior user questions together with their already validated query plans. Prior result rows and salary values are not sent back to the model.
 
-`GET /employees` supports:
+The planner must return a complete plan for the current question. Follow-up wording therefore resolves against validated intent rather than model-generated memory.
 
-- page,
-- page size,
-- search,
-- country,
-- department,
-- job title.
+#### Missing data
 
-Search, filtering, ordering, and pagination are executed in PostgreSQL.
+When the requested answer depends on data outside the product schema, Ask Compensation returns an unsupported result naming the missing data or boundary.
 
-`GET /employees/filter-options` returns the distinct countries, departments, and job titles used by exact-match directory filters.
+The application does not infer absent employee attributes from names or other fields and does not substitute external knowledge for missing company data.
 
-### Compensation update
+RAG and a vector database are not used because the current source of truth is structured relational data. They become relevant only if the product later includes unstructured sources that require semantic retrieval.
 
-`PATCH /employees/{employee_id}/compensation` updates current compensation only.
+#### Failure boundary
 
-The backend validates the salary amount and currency before persistence.
-
-### Analytics
-
-The analytics endpoints expose the same analytics service used by Ask Compensation. There is no separate calculation path for natural-language answers.
-
----
-
-## Ask Compensation
-
-Natural-language analytics follows a constrained flow:
-
-```text
-HR question
-    |
-    v
-Gemini
-    |
-    v
-Structured Query Plan
-    |
-    v
-Pydantic Validation
-    |
-    v
-Analytics Service
-    |
-    v
-SQLAlchemy
-    |
-    v
-PostgreSQL
-    |
-    v
-Exact Result
-```
-
-A plan can contain supported concepts such as:
-
-```text
-metric
-filters
-group_by
-sort
-limit
-```
-
-Supported metrics include:
-
-```text
-employee_count
-average_salary
-total_payroll
-```
-
-Supported dimensions include:
-
-```text
-country
-department
-job_title
-```
-
-The model is responsible for language interpretation only.
-
-It:
-
-- has no database credentials,
-- does not generate executable SQL,
-- cannot perform writes,
-- does not calculate authoritative compensation values,
-- does not receive the complete employee dataset.
-
-The backend validates every generated plan before execution. Unsupported questions are rejected rather than approximated.
-
-Provider-specific code is isolated behind a small planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
-
----
+Provider-specific code remains behind the planner interface. A provider outage affects Ask Compensation only; employee search, compensation management, and deterministic Analytics continue to operate.
 
 ## Currency Handling
 
@@ -371,7 +308,8 @@ The final application shell keeps the primary product areas available while pres
 - Analytics dimension, measure, and filter state are URL-addressable.
 - Ask Compensation is available across primary pages.
 - The assistant remains beside the page on wide screens and uses an overlay presentation at narrower widths.
-- Supported Ask Compensation results can link into the corresponding Analytics view.
+- Ask Compensation preserves validated intent across a bounded number of turns for contextual follow-ups.
+- Results that map directly to the fixed Analytics workspace can link into the corresponding Analytics view.
 
 These are presentation choices; product rules and authoritative calculations remain in the backend.
 

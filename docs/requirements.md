@@ -57,14 +57,19 @@ Cross-country monetary metrics use the normalized analytics currency.
 
 ### Ask Compensation
 
-The HR Manager can ask supported compensation questions in natural language, such as:
+Ask Compensation is a read-only natural-language interface over the data Compensation Hub actually stores.
 
-- What is the average salary in Engineering?
-- What is the total payroll for Germany?
-- Show average compensation by department.
-- How many Engineering employees are based in India?
+The product contract is:
 
-Answers must be based on application data and deterministic calculations. If the available data cannot answer a question reliably, the product should say so rather than guess.
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
+
+Answerability is determined by the available employee, current-compensation, and FX data, not by a fixed catalog of supported question phrases.
+
+The language model interprets the question into a constrained read-only query plan. The application validates that plan and constructs the executable database query. PostgreSQL and deterministic application logic produce the authoritative result.
+
+Ask Compensation supports contextual follow-up questions by carrying forward bounded prior validated query intent. It does not replay employee result rows or salary values to the model as conversation memory.
+
+The capability remains read-only. It cannot update employee or compensation data, make salary recommendations, or execute arbitrary model-generated SQL.
 
 ## Deliberate Non-Goals
 
@@ -91,5 +96,6 @@ The MVP is successful when the HR Manager can:
 2. view and update current compensation,
 3. understand key compensation patterns across the organization,
 4. compare compensation across countries using consistent currency values,
-5. ask supported compensation questions and receive answers grounded in application data,
-6. get a clear response when a question cannot be answered reliably.
+5. ask natural-language questions that can be derived from available product data, including contextual follow-ups,
+6. receive deterministic, data-grounded answers rather than model-generated figures,
+7. get a specific explanation when a question requires data the product does not have.
