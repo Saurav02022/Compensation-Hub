@@ -6,31 +6,33 @@ This document defines how AI is used in Compensation Hub and how AI-assisted dev
 
 ### Ask Compensation
 
-Ask Compensation provides a natural-language interface over the product's existing analytics capabilities.
+Ask Compensation provides natural-language, read-only access to data Compensation Hub actually stores.
 
-Its responsibility is limited to interpreting a user's question and converting it into a supported, structured analytics request.
+Its responsibility is to interpret an HR question and return a constrained structured plan. The application validates that plan, constructs the executable query with SQLAlchemy, and uses PostgreSQL plus deterministic application logic for the authoritative result.
 
 The flow is:
 
 ```text
-HR question
-    |
-    v
+Current question
+      +
+prior validated plans
+      |
+      v
 LLM
-    |
-    v
-Structured Query Plan
-    |
-    v
+      |
+      v
+Structured read-only plan
+      |
+      v
 Validation
-    |
-    v
-Analytics Service
-    |
-    v
+      |
+      v
+SQLAlchemy / deterministic calculation
+      |
+      v
 PostgreSQL
-    |
-    v
+      |
+      v
 Result
 ```
 
@@ -39,29 +41,55 @@ The LLM is not the source of truth for compensation data.
 It does not:
 
 - receive database credentials,
-- generate or execute arbitrary SQL,
+- generate SQL that is executed by the application,
 - update employee or compensation data,
 - calculate authoritative compensation values,
+- receive the complete employee dataset,
+- receive prior result rows or salary values as conversation memory,
+- infer missing employee attributes,
 - make salary recommendations,
 - decide who should receive a raise.
 
-All calculations are performed by deterministic application and database logic.
+All executable database operations are constructed by application code from validated plan fields.
 
-If a question cannot be represented by the supported analytics model, the product returns a clear unsupported response rather than guessing.
+If a question requires data the product does not store, the response identifies the missing data rather than guessing.
 
 ### Structured Output
 
-The model returns a constrained query plan containing only supported concepts such as:
+The validated query model supports a bounded set of read-only operations:
 
-- metric,
-- filters,
-- grouping,
-- sorting,
-- result limit.
+- aggregates: employee count, total payroll, average, minimum, maximum, and median salary,
+- filtering and grouping over stored fields,
+- bounded employee lookup and compensation ranking,
+- distinct stored values,
+- percentages,
+- direct comparisons,
+- deterministic currency conversion using seeded FX rates.
 
-The backend validates the plan before execution.
+A plan cannot represent an insert, update, delete, schema change, or arbitrary SQL statement.
 
-Invalid or unsupported output is rejected before it reaches the analytics layer.
+Referenced dimension values and target currencies are checked against current database values before execution.
+
+### Contextual Follow-ups
+
+Ask Compensation can use up to six prior successful turns to interpret follow-up questions such as:
+
+```text
+What is the total payroll in Germany?
+Convert that to INR.
+```
+
+Only the prior user question and its already validated plan are sent back to the planner. Previous result rows and compensation values are not included.
+
+The current question must always produce a complete new validated plan before it can execute.
+
+### Why RAG Is Not Used
+
+The product's source of truth is structured relational data.
+
+Questions about employees, current compensation, aggregates, comparisons, and currency conversion require exact relational queries and deterministic calculations rather than semantic document retrieval.
+
+RAG would become appropriate if Compensation Hub later added unstructured sources such as compensation policies, country guidelines, or HR documents.
 
 ### Reliability
 
@@ -71,24 +99,25 @@ If the LLM provider is unavailable:
 
 - employee search still works,
 - compensation management still works,
-- dashboard analytics still work,
+- deterministic analytics still work,
 - Ask Compensation reports that the feature is unavailable.
 
-The product must never fall back to invented compensation results.
+The product never falls back to invented compensation results.
 
 ### Testing
 
-Automated tests do not depend on live LLM calls.
+Routine automated tests do not depend on live LLM calls.
 
-The LLM boundary is mocked so tests can verify:
+The planner boundary is mocked so the suite can verify:
 
-- valid query plans,
-- invalid query plans,
-- unsupported questions,
-- filtering and grouping behavior,
-- attempts to use AI for write operations.
+- valid and invalid plans,
+- contextual follow-up history,
+- missing-data responses,
+- filtering, grouping, ranking, percentages, comparisons, and FX conversion,
+- rejection of SQL-like or write-like model output,
+- provider failure isolation.
 
-A small set of live-model evaluation cases may be run separately to verify that representative natural-language questions map to the expected structured requests.
+A separate live-model evaluation suite covers representative supported, unsupported, and follow-up questions. It is intentionally excluded from routine CI and requires an explicit provider credential.
 
 ## AI-Assisted Development
 
@@ -408,6 +437,32 @@ How it was verified: 66 frontend tests, eslint, tsc, and next build; CI green;
   a live Ask question, an unsupported question, and the panel across
   navigation all passed; no warnings, errors, or non-200 responses in either
   service log after the deploy.
+```
+
+```text
+Date: 2026-09-23
+Tool: ChatGPT
+Task: Phase 10 — data-grounded Ask Compensation
+How AI was used: Reviewed the gap between the conversational UI and the original
+  three-metric planner, then implemented a broader constrained read-only query
+  model, bounded validated-plan history for follow-ups, deterministic execution,
+  generalized result rendering, tests, documentation, and CI fixes.
+What was accepted: Five explicit query kinds for aggregates, employees, distinct
+  values, shares, and comparisons; minimum, maximum, and median salary; bounded
+  employee ranking; deterministic target-currency conversion through seeded FX
+  rates; up to six prior questions with their validated plans as follow-up
+  context; SQLAlchemy-built queries only; specific missing-data explanations.
+What was changed or rejected: RAG and a vector database were rejected because
+  the source of truth is structured relational data, not documents. Arbitrary
+  text-to-SQL was rejected because it would broaden the executable surface and
+  weaken validation. Prior result rows and salary values were kept out of model
+  conversation context. CI exposed formatting, URL-encoding, and UI assertion
+  issues, which were corrected without weakening the intended behavior.
+How it was verified: GitHub Actions passed ruff check, ruff format --check,
+  mypy, and 110 backend tests against PostgreSQL with 10 live-model cases
+  deselected; the frontend passed eslint, TypeScript checking, 67 Vitest tests,
+  and the production Next.js build. The optional live-model evaluation was
+  expanded for the new capabilities but was not run in routine CI.
 ```
 
 ## Working Principle
