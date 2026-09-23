@@ -305,7 +305,8 @@ def _interpretation(plan: QueryPlan) -> str:
         return text
     if plan.kind == "values":
         assert plan.field is not None
-        return f"Distinct {DIMENSION_LABELS[plan.field]} values for {_describe_filters(plan.filters)}"
+        scope = _describe_filters(plan.filters)
+        return f"Distinct {DIMENSION_LABELS[plan.field]} values for {scope}"
     if plan.kind == "share":
         assert plan.metric is not None and plan.denominator_filters is not None
         return (
