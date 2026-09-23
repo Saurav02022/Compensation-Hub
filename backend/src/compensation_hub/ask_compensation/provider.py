@@ -5,7 +5,6 @@ validated plans when the user asks a follow-up. It never receives database crede
 result rows. Every response is validated again before deterministic application code executes it.
 """
 
-import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
