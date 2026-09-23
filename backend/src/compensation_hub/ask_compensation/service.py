@@ -6,7 +6,7 @@ from typing import Any, Literal
 from urllib.parse import urlencode
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import ColumnElement, Select, case, distinct, func, select
+from sqlalchemy import Select, case, distinct, func, select
 from sqlalchemy.orm import Session
 
 from compensation_hub.analytics.service import SALARY_USD
@@ -43,7 +43,7 @@ class InvalidPlanError(Exception):
 
 @dataclass(frozen=True)
 class FieldInfo:
-    expression: ColumnElement[Any]
+    expression: Any
     kind: Literal["text", "number", "boolean"]
     label: str
     default_format: ResultFormat
@@ -239,7 +239,7 @@ def _base_select(*columns: Any) -> Select[Any]:
     )
 
 
-def _aggregate_expression(projection: Projection) -> ColumnElement[Any]:
+def _aggregate_expression(projection: Projection) -> Any:
     aggregate = projection.aggregate
     if aggregate is None:
         assert projection.field is not None
@@ -548,13 +548,13 @@ def _reference_value(executed: dict[str, ExecutedQuery], ref: ResultRef) -> Refe
         raise InvalidPlanError(
             f"calculation references unknown column {ref.query}.{ref.column}"
         )
-    raw = query.raw_rows[0][ref.column]
-    if raw is None:
+    serialized = query.result.rows[0].get(ref.column)
+    if serialized is None:
         raise InvalidPlanError(
             f"calculation reference {ref.query}.{ref.column} has no value"
         )
     try:
-        value = Decimal(str(raw))
+        value = Decimal(str(serialized))
     except InvalidOperation as error:
         raise InvalidPlanError(
             f"calculation reference {ref.query}.{ref.column} is not numeric"
