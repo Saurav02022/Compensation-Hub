@@ -16,7 +16,7 @@ The application is deployed on Google Cloud Run in India.
 - View and update an employee's current annual salary.
 - Keep employee compensation in local currency while using USD for cross-country analytics.
 - View employee count, total annual payroll, average annual salary, and compensation breakdowns.
-- Ask supported compensation questions in natural language through **Ask Compensation**.
+- Ask read-only questions about available employee and compensation data in natural language through **Ask Compensation**, including contextual follow-ups.
 
 ## Compensation Model
 
@@ -28,30 +28,33 @@ The MVP manages current compensation only. Salary history, payroll processing, a
 
 ## Ask Compensation
 
-Ask Compensation provides natural-language access to the product's existing analytics capabilities.
+Ask Compensation provides natural-language, read-only access to the employee, current-compensation, and FX data stored by the product.
+
+It can answer questions that can be derived from those fields, including aggregates, median/minimum/maximum salary, employee lookup and ranking, percentages, comparisons, distinct stored values, currency conversion, and contextual follow-ups.
 
 ```text
-HR question
-    |
-    v
+Current question
+      +
+prior validated plans
+      |
+      v
 LLM
-    |
-    v
-Validated structured query
-    |
-    v
-Analytics service
-    |
-    v
-PostgreSQL
-    |
-    v
+      |
+      v
+Validated read-only plan
+      |
+      v
+SQLAlchemy + PostgreSQL
+      |
+      v
 Authoritative result
 ```
 
-The LLM interprets intent; it is not the source of truth.
+The language model interprets intent; it is not the source of truth. The executable database query is built by application code from a validated plan.
 
-It does not receive database credentials, execute arbitrary SQL, update compensation data, or calculate authoritative compensation values.
+The model does not receive database credentials, generate executable SQL, update compensation data, or calculate authoritative values. Conversation context contains prior questions and validated plans, not employee result rows or salary values.
+
+If a question requires information the product does not store, Ask Compensation explains what is missing instead of guessing.
 
 ## Architecture
 
