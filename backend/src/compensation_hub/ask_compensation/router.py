@@ -30,5 +30,4 @@ def ask_compensation(session: SessionDep, planner: PlannerDep, payload: AskReque
         interpretation=outcome.interpretation,
         plan=outcome.plan,
         result=outcome.result,
-        analytics_path=outcome.analytics_path,
     )
