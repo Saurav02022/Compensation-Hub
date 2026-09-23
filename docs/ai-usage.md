@@ -225,7 +225,7 @@ What was accepted: A flat query plan (metric, exact filters, group by, sort,
   the real dimension values before execution; answers composed by application
   code from analytics results, never by the model; a 503 for provider outages
   with every other feature unaffected; the planner receives only the question
-  and the dimension vocabulary; Gemini selected by the product owner (D012).
+  and the dimension vocabulary; Gemini selected as the provider (D012).
 What was changed or rejected: The first live run showed Gemini emitting
   "reason": null beside a plan because the response schema lists both
   properties, which the strict schema rejected; null-valued top-level keys are
@@ -274,16 +274,16 @@ How AI was used: Wrote the backend and frontend Dockerfiles and the full-stack
   created the Supabase project in Mumbai, migrated and seeded it, built the
   images with Cloud Build, deployed both Cloud Run services in asia-south1,
   and smoke-tested the deployed product.
-What was accepted: Cloud Run in Mumbai plus Supabase in Mumbai as chosen by the
-  product owner (D013); Supabase reached through its IPv4 session-mode pooler
-  because Cloud Run egress is IPv4 only; the database URL held only in Secret
-  Manager and mounted into the API service; the API key for Ask Compensation
-  created by the product owner rather than handled by the assistant.
+What was accepted: Cloud Run in Mumbai plus Supabase in Mumbai as recorded in
+  D013; Supabase reached through its IPv4 session-mode pooler because Cloud Run
+  egress is IPv4 only; the database URL held only in Secret Manager and mounted
+  into the API service; the Ask Compensation API key provisioned outside the
+  repository and stored in Secret Manager.
 What was changed or rejected: BuildKit cache mounts were removed from the
   backend image because Cloud Build's classic builder rejects them; the frontend
   ignore file needed recursive patterns so test files stayed out of the image;
-  Supabase project creation initially failed on overdue organization invoices,
-  which the product owner settled.
+  Supabase project creation initially failed because of an account billing
+  issue, which was resolved before retrying.
 How it was verified: Both images built by Cloud Build; migrations 0001-0003 and
   the 10,000-employee seed applied to Supabase with counts confirmed; deployed
   health, directory, filters, detail, salary update and revert, analytics, and
