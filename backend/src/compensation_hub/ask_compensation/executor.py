@@ -142,9 +142,15 @@ def _validate_operator(clause: FilterClause) -> None:
         raise InvalidProgramError(f"{clause.op} is not valid for {clause.field}")
 
 
-def _filter_expression(clause: FilterClause) -> Any:
+def _filter_expression(
+    session: Session,
+    clause: FilterClause,
+    target_currency: str | None,
+) -> Any:
     _validate_operator(clause)
     expression = _field_spec(clause.field).expression
+    if clause.field == "salary_usd" and target_currency not in (None, "USD"):
+        expression = expression / _rate_to_usd(session, target_currency)
 
     if clause.op == "is_null":
         return expression.is_(None)
@@ -179,9 +185,16 @@ def _filter_expression(clause: FilterClause) -> Any:
     raise InvalidProgramError(f"Unsupported filter operator {clause.op}")
 
 
-def _apply_filters(statement: Select[Any], filters: list[FilterClause]) -> Select[Any]:
+def _apply_filters(
+    session: Session,
+    statement: Select[Any],
+    filters: list[FilterClause],
+    target_currency: str | None,
+) -> Select[Any]:
     for clause in filters:
-        statement = statement.where(_filter_expression(clause))
+        statement = statement.where(
+            _filter_expression(session, clause, target_currency)
+        )
     return statement
 
 
@@ -246,8 +259,6 @@ def _validate_projection_shape(query: DataQuery) -> None:
         if projection.aggregate in {
             "sum",
             "avg",
-            "min",
-            "max",
             "median",
             "stddev",
             "variance",
@@ -257,6 +268,12 @@ def _validate_projection_shape(query: DataQuery) -> None:
             if _field_spec(projection.field).kind != "number":
                 raise InvalidProgramError(
                     f"{projection.aggregate} requires a numeric field"
+                )
+        if projection.aggregate in {"min", "max"}:
+            assert projection.field is not None
+            if _field_spec(projection.field).kind == "boolean":
+                raise InvalidProgramError(
+                    f"{projection.aggregate} is not valid for boolean fields"
                 )
 
         if (
@@ -272,14 +289,14 @@ def _validate_projection_shape(query: DataQuery) -> None:
             )
 
     if query.target_currency is not None:
-        convertible = any(
+        uses_normalized_salary = any(
             projection.field == "salary_usd"
             and projection.aggregate not in {"count", "count_distinct"}
             for projection in query.select
-        )
-        if not convertible:
+        ) or any(clause.field == "salary_usd" for clause in query.filters)
+        if not uses_normalized_salary:
             raise InvalidProgramError(
-                "target_currency requires a salary_usd projection"
+                "target_currency requires a salary_usd projection or filter"
             )
 
 
@@ -328,7 +345,7 @@ def _projection_expression(
     if aggregate == "count_distinct":
         return func.count(func.distinct(base)).label(projection.alias), None
     if aggregate == "sum":
-        return func.sum(base).label(projection.alias), currency
+        return func.coalesce(func.sum(base), 0).label(projection.alias), currency
     if aggregate == "avg":
         return func.avg(base).label(projection.alias), currency
     if aggregate == "min":
@@ -416,7 +433,12 @@ def _execute_query(
         if currency is not None:
             currencies.add(currency)
 
-    statement = _apply_filters(_base_select(*expressions), query.filters)
+    statement = _apply_filters(
+        session,
+        _base_select(*expressions),
+        query.filters,
+        query.target_currency,
+    )
 
     if query.group_by:
         statement = statement.group_by(
@@ -439,10 +461,20 @@ def _execute_query(
             for projection in query.select
             if projection.aggregate is None
         }
-        if "full_name" in plain_employee_aliases:
+        if query.group_by:
+            statement = statement.order_by(
+                *[_field_spec(field).expression.asc().nulls_last() for field in query.group_by]
+            )
+        elif query.distinct:
+            statement = statement.order_by(*expressions)
+        elif "full_name" in plain_employee_aliases:
             statement = statement.order_by(
                 Employee.full_name.asc(), Employee.employee_code.asc()
             )
+        elif "employee_code" in plain_employee_aliases:
+            statement = statement.order_by(Employee.employee_code.asc())
+        else:
+            statement = statement.order_by(expressions[0].asc().nulls_last())
 
     if not _query_is_scalar(query):
         default_limit = (
@@ -534,15 +566,16 @@ def _execute_calculation(
 
     currency: str | None = None
     if calculation.format == "currency":
-        if (
-            left_column.currency is None
-            or right_column.currency is None
-            or left_column.currency != right_column.currency
-        ):
+        currencies = {
+            source
+            for source in (left_column.currency, right_column.currency)
+            if source is not None
+        }
+        if len(currencies) != 1:
             raise InvalidProgramError(
-                "Currency calculations require matching source currencies"
+                "Currency calculations require one consistent source currency"
             )
-        currency = left_column.currency
+        currency = currencies.pop()
 
     return value, currency
 
