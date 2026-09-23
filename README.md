@@ -8,7 +8,7 @@ The product is designed around a 10,000-employee dataset and focuses on three jo
 
 [Open Compensation Hub](https://compensation-hub-web-757075627159.asia-south1.run.app)
 
-The application is deployed on Google Cloud Run in India. A demo link can be added here after the final walkthrough is recorded.
+The application is deployed on Google Cloud Run in India.
 
 ## Core Capabilities
 
