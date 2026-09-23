@@ -28,33 +28,38 @@ The MVP manages current compensation only. Salary history, payroll processing, a
 
 ## Ask Compensation
 
-Ask Compensation provides natural-language, read-only access to the employee, current-compensation, and FX data stored by the product.
+Ask Compensation is a natural-language, read-only interface over data Compensation Hub actually stores.
 
-It can answer questions that can be derived from those fields, including aggregates, median/minimum/maximum salary, employee lookup and ranking, percentages, comparisons, distinct stored values, currency conversion, and contextual follow-ups.
+Its product contract is simple:
+
+> If Compensation Hub has the data required to answer the question, Ask Compensation derives the answer from that data. If the required data is not available, it identifies what is missing rather than inventing an answer.
+
+The assistant is not implemented as a list of supported question templates. Gemini translates the HR manager's language into a generic constrained query program over the application's approved data vocabulary. The backend validates that program, constructs the allowed SQLAlchemy operations, and lets PostgreSQL and deterministic application code produce the authoritative result.
 
 ```text
-Current question
-      +
-prior validated plans
-      |
-      v
-LLM
-      |
-      v
-Validated read-only plan
-      |
-      v
-SQLAlchemy + PostgreSQL
-      |
-      v
-Authoritative result
+Question + validated conversation context
+                 |
+                 v
+              Gemini
+                 |
+                 v
+       read-only query program
+                 |
+                 v
+       validation + SQLAlchemy
+                 |
+                 v
+             PostgreSQL
+                 |
+                 v
+        deterministic result
 ```
 
-The language model interprets intent; it is not the source of truth. The executable database query is built by application code from a validated plan.
+The model has no database credentials, does not emit SQL that the application executes, cannot write data, and does not calculate authoritative compensation figures itself.
 
-The model does not receive database credentials, generate executable SQL, update compensation data, or calculate authoritative values. Conversation context contains prior questions and validated plans, not employee result rows or salary values.
+Conversation context contains prior questions and validated query programs, not previous employee result rows or salary values. If the question depends on a field that is not stored, the assistant returns the missing-data boundary instead of inferring it.
 
-If a question requires information the product does not store, Ask Compensation explains what is missing instead of guessing.
+RAG is not used for the current data path because the source of truth is structured relational data. It would be appropriate only if unstructured product sources were introduced later.
 
 ## Architecture
 
