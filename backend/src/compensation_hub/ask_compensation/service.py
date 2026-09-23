@@ -64,9 +64,7 @@ def parse_planner_response(raw: str) -> PlannerResponse:
 
 def _planner_context(session: Session) -> PlannerContext:
     options = list_filter_options(session)
-    currencies = tuple(
-        session.scalars(select(FxRate.currency_code).order_by(FxRate.currency_code))
-    )
+    currencies = tuple(session.scalars(select(FxRate.currency_code).order_by(FxRate.currency_code)))
     pairs = session.execute(
         select(Employee.country, Compensation.currency_code)
         .join(Compensation, Compensation.employee_id == Employee.id)
@@ -112,8 +110,7 @@ def ask(
         return AskOutcome(
             status="unsupported",
             answer=(
-                f"{UNSUPPORTED_PREFIX} The question could not be mapped to a valid "
-                "read-only query."
+                f"{UNSUPPORTED_PREFIX} The question could not be mapped to a valid read-only query."
             ),
         )
 
