@@ -1,12 +1,12 @@
 """Optional live-model evaluation for Ask Compensation.
 
 Excluded from the default test run and from CI. It needs TEST_DATABASE_URL, GEMINI_API_KEY,
-and the ``live`` marker selected explicitly:
+and the live marker selected explicitly:
 
     uv run pytest -m live
 
-Each case checks that a representative question maps to the expected structured request; the
-numbers themselves come from the deterministic analytics service and are not asserted here.
+The evaluation checks whether representative natural-language questions map to safe plans
+that the application can execute. Exact values still come from PostgreSQL.
 """
 
 import pytest
@@ -21,35 +21,41 @@ pytestmark = pytest.mark.live
 CASES: list[tuple[str, dict[str, object]]] = [
     (
         "What is the average salary in Engineering?",
-        {"metric": "average_salary", "department": "Engineering", "group_by": None},
+        {"kind": "aggregate", "metric": "average_salary", "department": "Engineering"},
     ),
     (
         "What is the total payroll for Germany?",
-        {"metric": "total_payroll", "country": "Germany", "group_by": None},
+        {"kind": "aggregate", "metric": "total_payroll", "country": "Germany"},
     ),
     (
-        "Show average compensation by department.",
-        {"metric": "average_salary", "group_by": "department"},
+        "What is the median salary in Sales?",
+        {"kind": "aggregate", "metric": "median_salary", "department": "Sales"},
     ),
     (
-        "How many Engineering employees are based in India?",
+        "Who are the five highest-paid Engineering employees in India?",
         {
-            "metric": "employee_count",
+            "kind": "employees",
             "department": "Engineering",
             "country": "India",
-            "group_by": None,
+            "sort": "desc",
+            "sort_by": "salary_usd",
+            "limit": 5,
         },
     ),
     (
-        "Which three countries have the highest total payroll?",
-        {"metric": "total_payroll", "group_by": "country", "sort": "desc", "limit": 3},
+        "What currencies are used in Germany?",
+        {"kind": "values", "field": "currency_code", "country": "Germany"},
+    ),
+    (
+        "What percentage of employees are in Engineering?",
+        {"kind": "share", "metric": "employee_count", "department": "Engineering"},
     ),
 ]
 
 UNSUPPORTED_QUESTIONS = [
-    "Who should get a raise this year?",
+    "How many male engineers are based in India?",
     "What was Michael Nguyen's salary last year?",
-    "What is the median salary in Sales?",
+    "Who should get a raise this year?",
 ]
 
 
@@ -66,24 +72,66 @@ def live_client(seeded_client: TestClient) -> TestClient:
 
 @pytest.mark.parametrize(("question", "expected"), CASES, ids=[case[0] for case in CASES])
 def test_supported_question_maps_to_expected_plan(
-    live_client: TestClient, question: str, expected: dict[str, object]
+    live_client: TestClient,
+    question: str,
+    expected: dict[str, object],
 ) -> None:
-    body = live_client.post("/analytics/ask", json={"question": question}).json()
+    body = live_client.post(
+        "/analytics/ask",
+        json={"question": question, "history": []},
+    ).json()
 
     assert body["status"] == "answered", body
     plan = body["plan"]
-    assert plan["metric"] == expected["metric"]
-    assert plan["group_by"] == expected.get("group_by")
-    for field in ("country", "department", "job_title"):
-        assert plan["filters"][field] == expected.get(field), field
+    assert plan["kind"] == expected["kind"]
+    if "metric" in expected:
+        assert plan["metric"] == expected["metric"]
+    if "field" in expected:
+        assert plan["field"] == expected["field"]
+    if "country" in expected:
+        assert plan["filters"]["countries"] == [expected["country"]]
+    if "department" in expected:
+        assert plan["filters"]["departments"] == [expected["department"]]
     if "sort" in expected:
         assert plan["sort"] == expected["sort"]
+    if "sort_by" in expected:
+        assert plan["sort_by"] == expected["sort_by"]
     if "limit" in expected:
         assert plan["limit"] == expected["limit"]
 
 
 @pytest.mark.parametrize("question", UNSUPPORTED_QUESTIONS)
-def test_unsupported_question_is_declined(live_client: TestClient, question: str) -> None:
-    body = live_client.post("/analytics/ask", json={"question": question}).json()
+def test_questions_requiring_missing_or_subjective_data_are_declined(
+    live_client: TestClient,
+    question: str,
+) -> None:
+    body = live_client.post(
+        "/analytics/ask",
+        json={"question": question, "history": []},
+    ).json()
 
     assert body["status"] == "unsupported", body
+
+
+def test_follow_up_reuses_prior_validated_intent(live_client: TestClient) -> None:
+    first_question = "What is the total payroll in Germany?"
+    first = live_client.post(
+        "/analytics/ask",
+        json={"question": first_question, "history": []},
+    ).json()
+    assert first["status"] == "answered", first
+
+    second = live_client.post(
+        "/analytics/ask",
+        json={
+            "question": "Convert that to Indian currency.",
+            "history": [{"question": first_question, "plan": first["plan"]}],
+        },
+    ).json()
+
+    assert second["status"] == "answered", second
+    assert second["plan"]["kind"] == "aggregate"
+    assert second["plan"]["metric"] == "total_payroll"
+    assert second["plan"]["filters"]["countries"] == ["Germany"]
+    assert second["plan"]["target_currency"] == "INR"
+    assert second["result"]["currency"] == "INR"
