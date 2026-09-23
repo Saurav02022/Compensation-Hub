@@ -262,6 +262,8 @@ def build_system_instruction(context: PlannerContext) -> str:
             "- annual_salary is local currency. Do not aggregate annual_salary across multiple",
             "  currencies unless the query is filtered to one currency or grouped by currency.",
             "- For a requested target currency, query salary_usd and set target_currency.",
+            "- When target_currency is set, salary_usd filter values are interpreted in that",
+            "  target currency and converted to USD by application code before filtering.",
             "",
             "For row/list questions, select the fields HR needs, sort by a selected alias, and",
             "use a bounded limit. For counts, summaries, ranking, distributions, distinct values,",
