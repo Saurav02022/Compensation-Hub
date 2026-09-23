@@ -211,7 +211,7 @@ The model is configured through `GEMINI_MODEL` (default `gemini-3.8-flash`) and 
 
 **Why**
 
-The product owner has a Gemini API key available, and the SDK supports JSON-schema-constrained responses, which fits the constrained query-plan contract in D009. Keeping the adapter behind the planner interface means the rest of Ask Compensation, and all of its automated tests, remain provider-independent.
+Gemini supports JSON-schema-constrained responses, which fits the constrained query-plan contract in D009. Keeping the adapter behind the planner interface means the rest of Ask Compensation, including routine automated tests, remains provider-independent.
 
 **Trade-off**
 
@@ -227,8 +227,93 @@ Secrets are held in Secret Manager and mounted into the backend service, which r
 
 **Why**
 
-The product owner asked for Google Cloud, a new project, and Supabase, with everything hosted in India. Cloud Run fits a two-container modular monolith with no infrastructure to operate, and Cloud Build validates the same Dockerfiles that the local container stack uses. Supabase's pooler is required because Cloud Run egress is IPv4 only while Supabase direct connections are IPv6.
+Cloud Run fits the frontend/backend deployment shape without introducing infrastructure to operate, and Cloud Build validates the same Dockerfiles used by the local container stack. Keeping the application and database in India gives the deployment one clear regional shape. Supabase's pooler is required because Cloud Run egress is IPv4 only while Supabase direct connections are IPv6.
 
 **Trade-off**
 
 Both services are publicly reachable, consistent with D002's single trusted user and absence of authentication; the backend is not restricted to the frontend. Cold starts apply with the minimum instance count of zero.
+
+
+---
+
+## D014 — Keep employee discovery bounded and server-side
+
+Employee search, filtering, and pagination are executed by PostgreSQL through the backend API.
+
+The frontend requests only the current bounded page of employees instead of loading the complete 10,000-employee dataset into the browser. Search, filter, and page state are URL-addressable, and filter choices come from a dedicated filter-options endpoint.
+
+**Why**
+
+The directory is an operational data workflow over 10,000 records. Server-side operations keep network payloads and browser memory bounded while making search, filters, pagination, refresh, and browser back/forward behavior predictable.
+
+URL-addressable state also makes a directory view reproducible without introducing a client-side copy of the workforce dataset.
+
+**Trade-off**
+
+Directory interactions require server round trips, so the UI must handle loading and transition states well rather than relying on instant in-memory filtering.
+
+---
+
+## D015 — Make Ask Compensation a global contextual assistant
+
+Ask Compensation is available from every primary application page instead of being a separate destination.
+
+On wide screens it is presented beside the current page; on narrower screens it becomes an overlay sheet. Its conversation is preserved while the user navigates, and supported answers can link into the equivalent Analytics view.
+
+**Why**
+
+Natural-language analytics is most useful while the HR Manager is already working in the directory, employee detail, overview, or analytics. Keeping the assistant global preserves workflow context and makes it a product capability rather than a separate chatbot application.
+
+**Trade-off**
+
+The application shell owns additional cross-page state and responsive behavior. The assistant remains intentionally limited to supported compensation analytics rather than becoming a general conversational workspace.
+
+---
+
+## D016 — Use one focused analytics breakdown workspace
+
+The final analytics experience uses a single breakdown workspace where the HR Manager chooses a dimension and measure, sees exact values alongside visual bars, and can drill into a selected row.
+
+The selected dimension, metric, and filters are represented in the URL. Only the active breakdown is fetched. The visualization uses simple application UI rather than introducing a charting library.
+
+**Why**
+
+A focused workspace makes comparison and drill-down clearer than presenting several disconnected charts at once.
+
+Keeping exact values visible preserves precision for compensation data, while URL state makes an analysis reproducible. The current single-series comparisons do not require a charting dependency.
+
+**Trade-off**
+
+The product exposes fewer simultaneous visualizations and less advanced chart interaction than a general-purpose BI tool.
+
+---
+
+## D017 — Make text ordering deterministic across environments
+
+Employee text fields used for ordered directory pages, filter options, and breakdown keys use an explicit byte-order database collation.
+
+**Why**
+
+Default PostgreSQL collation depends on the host environment. During verification, Linux and Windows produced different ordering for the same seeded data, which would make pagination and tests environment-dependent.
+
+An explicit collation makes ordering stable across local development, CI, and production.
+
+**Trade-off**
+
+Byte-order sorting is deterministic but is not intended to provide locale-aware linguistic ordering for every language.
+
+---
+
+## D018 — Avoid data fetches that exist only for dynamic page metadata
+
+Employee detail pages use the product-level browser tab title rather than fetching an employee during route prefetch solely to generate a per-employee title.
+
+**Why**
+
+A production build showed that Next.js prefetching could resolve dynamic metadata for every visible employee link in the directory, causing up to 25 unnecessary employee-detail API requests for a single results page.
+
+Removing that metadata fetch keeps directory navigation bounded to the list and filter-options requests until the user actually opens an employee.
+
+**Trade-off**
+
+Employee detail browser tabs show the generic Compensation Hub title instead of the employee's name.
