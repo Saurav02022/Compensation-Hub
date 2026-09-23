@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 10 — Data-Grounded Ask Compensation
+**Current phase:** Phase 7 — Final Product Review and Delivery (demo recording pending)
 
 ## Status
 
@@ -241,17 +241,17 @@ A second design pass rebuilt the interface around patterns observed in current B
 
 Extend the conversational assistant so HR can ask any read-only question that can be derived from data Compensation Hub actually stores, rather than being limited to the fixed Analytics workspace.
 
-- [ ] Carry a bounded history of prior questions and validated plans for contextual follow-ups.
-- [ ] Broaden the validated query model beyond three fixed analytics metrics.
-- [ ] Support current-data aggregates including minimum, maximum, and median salary.
-- [ ] Support bounded employee lookup and compensation ranking.
-- [ ] Support distinct stored-value questions.
-- [ ] Support percentages and direct comparisons.
-- [ ] Support deterministic conversion to currencies present in the FX table.
-- [ ] Explain missing data specifically instead of returning a generic unsupported-analytics response.
-- [ ] Keep the assistant read-only and prevent model-generated SQL or write operations.
-- [ ] Render scalar, tabular, and employee results in the existing assistant.
-- [ ] Expand deterministic automated tests and the optional live-model evaluation.
-- [ ] Reconcile requirements, decisions, architecture, README, and the development record.
+- [x] Carry a bounded history of prior questions and validated plans for contextual follow-ups.
+- [x] Broaden the validated query model beyond three fixed analytics metrics.
+- [x] Support current-data aggregates including minimum, maximum, and median salary.
+- [x] Support bounded employee lookup and compensation ranking.
+- [x] Support distinct stored-value questions.
+- [x] Support percentages and direct comparisons.
+- [x] Support deterministic conversion to currencies present in the FX table.
+- [x] Explain missing data specifically instead of returning a generic unsupported-analytics response.
+- [x] Keep the assistant read-only and prevent model-generated SQL or write operations.
+- [x] Render scalar, tabular, and employee results in the existing assistant.
+- [x] Expand deterministic automated tests and the optional live-model evaluation.
+- [x] Reconcile requirements, decisions, architecture, README, and the development record.
 
-**Exit condition:** Ask Compensation answers the broader class of read-only questions derivable from employee, current-compensation, and FX data; contextual follow-ups such as currency conversion preserve validated intent; questions requiring unavailable data are declined specifically; and the full backend/frontend quality suite passes.
+**Exit condition:** complete — Ask Compensation answers the broader class of read-only questions derivable from employee, current-compensation, and FX data; contextual follow-ups such as currency conversion preserve validated intent; questions requiring unavailable data are declined specifically; and the full backend/frontend quality suite passes.
