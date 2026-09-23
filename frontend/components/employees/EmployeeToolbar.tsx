@@ -1,19 +1,16 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { Kbd } from "@/components/ui/Field";
+import { FilterSelect } from "@/components/ui/FilterSelect";
+import { Icon } from "@/components/ui/Icon";
+import { useRouteTransition } from "@/components/ui/RouteTransition";
 import { employeesHref, hasActiveFilters } from "@/lib/api/employees";
 import type { EmployeeFilterOptions, EmployeeListQuery } from "@/types/employees";
 
 const SEARCH_DEBOUNCE_MS = 300;
-
-interface EmployeeToolbarProps {
-  query: EmployeeListQuery;
-  options: EmployeeFilterOptions;
-}
 
 type FilterKey = "country" | "department" | "job_title";
 
@@ -23,12 +20,22 @@ const FILTERS: { key: FilterKey; label: string; optionsKey: keyof EmployeeFilter
   { key: "job_title", label: "Job title", optionsKey: "job_titles" },
 ];
 
+interface EmployeeToolbarProps {
+  query: EmployeeListQuery;
+  options: EmployeeFilterOptions;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+}
+
 export function EmployeeToolbar({ query, options }: EmployeeToolbarProps) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
+  const { replace } = useRouteTransition();
   const [search, setSearch] = useState(query.search ?? "");
   const [syncedSearch, setSyncedSearch] = useState(query.search);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Keep the box in step with the URL when navigation (back, forward, a link) changes it.
   if (query.search !== syncedSearch) {
@@ -36,31 +43,35 @@ export function EmployeeToolbar({ query, options }: EmployeeToolbarProps) {
     setSearch(query.search ?? "");
   }
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
       if (debounce.current) clearTimeout(debounce.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   function navigate(next: EmployeeListQuery) {
-    startTransition(() => {
-      router.replace(employeesHref({ ...next, page: 1 }));
-    });
+    replace(employeesHref({ ...next, page: 1 }));
+  }
+
+  function commitSearch(value: string) {
+    if (debounce.current) clearTimeout(debounce.current);
+    const trimmed = value.trim();
+    if (trimmed === (query.search ?? "")) return;
+    navigate({ ...query, search: trimmed || undefined });
   }
 
   function onSearchChange(value: string) {
     setSearch(value);
     if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => {
-      const trimmed = value.trim();
-      if (trimmed === (query.search ?? "")) return;
-      navigate({ ...query, search: trimmed || undefined });
-    }, SEARCH_DEBOUNCE_MS);
-  }
-
-  function onFilterChange(key: FilterKey, value: string) {
-    navigate({ ...query, [key]: value || undefined });
+    debounce.current = setTimeout(() => commitSearch(value), SEARCH_DEBOUNCE_MS);
   }
 
   function clearAll() {
@@ -77,62 +88,63 @@ export function EmployeeToolbar({ query, options }: EmployeeToolbarProps) {
       aria-label="Employee search and filters"
       onSubmit={(event) => {
         event.preventDefault();
-        if (debounce.current) clearTimeout(debounce.current);
-        navigate({ ...query, search: search.trim() || undefined });
+        commitSearch(search);
       }}
-      className="rounded-surface border border-border bg-surface px-4 py-3"
+      className="flex flex-wrap items-center gap-2"
     >
-      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
-        <Field label="Search" htmlFor="employee-search">
-          <div className="relative">
-            <Input
-              id="employee-search"
-              type="search"
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Name or employee code"
-              maxLength={100}
-              autoComplete="off"
-              className={search ? "pr-16" : ""}
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => onSearchChange("")}
-                className="absolute inset-y-0 right-2 text-xs text-ink-secondary hover:text-ink"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </Field>
-        {FILTERS.map((filter) => (
-          <Field key={filter.key} label={filter.label} htmlFor={`filter-${filter.key}`}>
-            <Select
-              id={`filter-${filter.key}`}
-              value={query[filter.key] ?? ""}
-              onChange={(event) => onFilterChange(filter.key, event.target.value)}
-            >
-              <option value="">All</option>
-              {options[filter.optionsKey].map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ))}
-      </div>
-      <div className="mt-2 flex min-h-5 items-center justify-between gap-3 text-xs">
-        <p role="status" aria-live="polite" className="text-ink-muted">
-          {isPending ? "Updating results…" : active ? "Filters applied. Results update as you type." : "Results update as you type."}
-        </p>
-        {active && (
-          <Button variant="ghost" onClick={clearAll} className="h-7 px-2 text-xs">
-            Clear all
-          </Button>
+      <div className="relative w-full sm:w-72">
+        <label htmlFor="employee-search" className="sr-only">
+          Search
+        </label>
+        <Icon name="search" className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-ink-muted" />
+        <input
+          id="employee-search"
+          ref={searchRef}
+          type="search"
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && search) {
+              event.preventDefault();
+              onSearchChange("");
+            }
+          }}
+          placeholder="Search name or employee code"
+          maxLength={100}
+          autoComplete="off"
+          spellCheck={false}
+          className="h-8 w-full rounded-control border border-border-strong bg-surface pr-8 pl-8 text-[13px] text-ink shadow-[0_1px_0_rgb(17_24_39/0.03)] transition-colors placeholder:text-ink-muted hover:border-ink-muted/60 focus:border-accent focus:ring-3 focus:ring-accent/15 focus:outline-none focus-visible:outline-none [&::-webkit-search-cancel-button]:hidden"
+        />
+        {search ? (
+          <button
+            type="button"
+            onClick={() => {
+              onSearchChange("");
+              searchRef.current?.focus();
+            }}
+            aria-label="Clear search"
+            className="absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-ink-muted hover:bg-surface-hover hover:text-ink"
+          >
+            <Icon name="close" size={14} />
+          </button>
+        ) : (
+          <Kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 sm:inline-flex">/</Kbd>
         )}
       </div>
+      {FILTERS.map((filter) => (
+        <FilterSelect
+          key={filter.key}
+          label={filter.label}
+          value={query[filter.key]}
+          options={options[filter.optionsKey]}
+          onChange={(value) => navigate({ ...query, [filter.key]: value })}
+        />
+      ))}
+      {active && (
+        <Button variant="ghost" size="sm" onClick={clearAll}>
+          Clear all
+        </Button>
+      )}
     </form>
   );
 }

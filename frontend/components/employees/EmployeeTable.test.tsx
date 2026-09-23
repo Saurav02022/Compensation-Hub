@@ -18,25 +18,41 @@ const employees: Employee[] = [
     id: 2,
     employee_code: "EMP00002",
     full_name: "Omar Joshi",
-    country: "Australia",
+    country: "Japan",
     department: "Engineering",
     job_title: "Senior Software Engineer",
+    compensation: { annual_salary: "9540000.00", currency_code: "JPY" },
+  },
+  {
+    id: 3,
+    employee_code: "EMP00003",
+    full_name: "Ana Silva",
+    country: "Brazil",
+    department: "Sales",
+    job_title: "Account Executive",
     compensation: null,
   },
 ];
 
 describe("EmployeeTable", () => {
-  it("renders one row per employee with the name linking to the detail page", () => {
+  it("renders one row per employee, each opening the detail page", () => {
     render(<EmployeeTable employees={employees} filtered={false} />);
 
-    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(screen.getAllByRole("row")).toHaveLength(4);
     expect(screen.getByRole("link", { name: "Michael Nguyen" })).toHaveAttribute("href", "/employees/1");
-    expect(screen.getByText("EMP00002")).toBeInTheDocument();
-    expect(screen.getByText("USD 62,000.00")).toBeInTheDocument();
-    expect(screen.getByText("Not on record")).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Omar Joshi/ })).toBeInTheDocument();
   });
 
-  it("offers to clear filters when a filtered search has no results", () => {
+  it("shows salaries in local currency at the precision of that currency", () => {
+    render(<EmployeeTable employees={employees} filtered={false} />);
+
+    const [michael, omar, ana] = screen.getAllByRole("row").slice(1);
+    expect(michael).toHaveTextContent("62,000.00USD");
+    expect(omar).toHaveTextContent("9,540,000JPY");
+    expect(ana).toHaveTextContent("Not on record");
+  });
+
+  it("offers to clear search and filters when nothing matches", () => {
     render(<EmployeeTable employees={[]} filtered />);
 
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
@@ -49,5 +65,12 @@ describe("EmployeeTable", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("No employees yet");
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("links back to the first page when the requested page is past the end", () => {
+    render(<EmployeeTable employees={[]} filtered outOfRange={{ firstPageHref: "/employees?country=India" }} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("past the end of the results");
+    expect(screen.getByRole("link", { name: "First page" })).toHaveAttribute("href", "/employees?country=India");
   });
 });
