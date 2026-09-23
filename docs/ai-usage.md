@@ -56,31 +56,27 @@ If a question requires data the product does not store, the response identifies 
 
 ### Structured Output
 
-The model returns a generic read-only query program rather than SQL or a question-specific command.
+The model returns a generic read-only query AST rather than SQL or a question-specific command.
 
-The program is built from application-owned primitives:
+The AST is built from application-owned primitives:
 
 - approved stored or derived fields,
-- validated filter operators,
+- validated predicates,
 - projection and distinct selection,
 - grouping and ordering,
 - bounded result limits,
-- approved statistical aggregates,
-- deterministic arithmetic over scalar query results,
-- FX conversion for normalized monetary values.
+- count, distinct count, sum, average, minimum, maximum, and median,
+- conditional aggregates,
+- arithmetic expressions,
+- FX conversion for USD-based monetary expressions.
 
-The application validates the program before SQLAlchemy constructs any database query. A generated response cannot represent an insert, update, delete, schema change, arbitrary SQL fragment, unrestricted database function, or unbounded result fetch.
+The application validates the AST before SQLAlchemy constructs any database query. A generated response cannot represent an insert, update, delete, schema change, arbitrary SQL fragment, unrestricted database function, or unbounded result fetch.
 
-Exact controlled-value filters and target currencies are checked against current database values before execution.
+Controlled-value filters and target currencies are checked against current database values before execution.
 
 ### Contextual Follow-ups
 
-Ask Compensation can use up to six prior successful turns to interpret follow-up questions such as:
-
-```text
-What is the total payroll in Germany?
-Convert that to INR.
-```
+Ask Compensation can use up to six prior successful turns to interpret conversational references and refinements.
 
 Only the prior user question and its already validated plan are sent back to the planner. Previous result rows and compensation values are not included.
 
@@ -113,11 +109,11 @@ Routine automated tests do not depend on live LLM calls.
 
 The planner boundary is mocked so the suite can verify:
 
-- valid and invalid query programs,
+- valid and invalid query ASTs,
 - contextual follow-up history,
 - missing-data responses,
-- generic filtering, projection, grouping, ordering, aggregation, arithmetic, and FX behavior,
-- result bounds,
+- generic filtering, projection, grouping, ordering, aggregation, conditional aggregation, arithmetic, and FX behavior,
+- expression and result bounds,
 - rejection of SQL-like or write-like model output,
 - provider failure isolation.
 
