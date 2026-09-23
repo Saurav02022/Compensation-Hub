@@ -4,6 +4,12 @@ Compensation Hub is a web application for HR teams to manage current employee co
 
 The product is designed around a 10,000-employee dataset and focuses on three jobs: finding an employee quickly, managing current compensation, and answering organization-level compensation questions reliably.
 
+## Live Product
+
+[Open Compensation Hub](https://compensation-hub-web-757075627159.asia-south1.run.app)
+
+The application is deployed on Google Cloud Run in India. A demo link can be added here after the final walkthrough is recorded.
+
 ## Core Capabilities
 
 - Search and filter employees by name, employee code, country, department, and job title.
@@ -55,15 +61,17 @@ Browser
    v
 Next.js + TypeScript
    |
-   | REST / JSON
+   | server-side REST / JSON
    v
 FastAPI + Python
    |
-   v
-PostgreSQL
+   +----------------------+
+   |                      |
+   v                      v
+PostgreSQL             Gemini API
 ```
 
-The backend is a modular monolith. Product rules, validation, analytics, currency normalization, and AI orchestration stay in the backend, while the frontend owns presentation and user interaction.
+The browser interacts with the Next.js application; backend API calls stay server-side in the frontend. The backend is a modular monolith. Product rules, validation, analytics, currency normalization, persistence, and Ask Compensation orchestration stay in the backend, while the frontend owns presentation and user interaction.
 
 ## Technology
 
@@ -74,6 +82,7 @@ The backend is a modular monolith. Product rules, validation, analytics, currenc
 | Data access | SQLAlchemy 2, Psycopg |
 | Migrations | Alembic |
 | Database | PostgreSQL |
+| Ask Compensation provider | Google Gemini |
 | Backend environment | uv |
 | Frontend package manager | npm |
 
@@ -171,7 +180,7 @@ npm install
 npm run dev
 ```
 
-The frontend is available at `http://localhost:3000` and needs the API running. `API_BASE_URL` (default `http://localhost:8000`) is read only on the server: pages fetch employee data during server rendering and the compensation form submits through a Server Action, so the browser never calls the API directly.
+The frontend is available at `http://localhost:3000` and needs the API running. `API_BASE_URL` (default `http://localhost:8000`) is read only on the server: page data and product actions reach the backend through server-side code, so the browser never calls the API directly.
 
 ### Frontend checks
 
@@ -244,7 +253,8 @@ The repository keeps product and engineering context separate:
 
 - Keep compensation calculations deterministic and testable.
 - Treat PostgreSQL as the source of truth.
-- Use AI for language understanding, not authoritative calculation.
+- Use the language model for interpretation, not authoritative calculation.
+- Keep large-dataset operations bounded and database-backed.
 - Prefer simple architecture over speculative infrastructure.
-- Add complexity only when a product or operational need justifies it.
-- Keep product behavior, documentation, and tests aligned as the system evolves.
+- Add complexity only when a product, performance, or operational need justifies it.
+- Keep product behavior, documentation, tests, and production reality aligned as the system evolves.
