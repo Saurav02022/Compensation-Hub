@@ -1,11 +1,11 @@
-import type { AskResponse } from "@/types/ask";
+import type { AskHistoryItem, AskResponse } from "@/types/ask";
 
 export type AskOutcome =
   | { status: "answered"; response: AskResponse }
   | { status: "unavailable"; message: string }
   | { status: "error"; message: string };
 
-export type AskAction = (question: string) => Promise<AskOutcome>;
+export type AskAction = (question: string, history: AskHistoryItem[]) => Promise<AskOutcome>;
 
 export interface AskExchange {
   id: number;
