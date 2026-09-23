@@ -347,7 +347,8 @@ Ask Compensation is read-only.
 The LLM may:
 
 - interpret a natural-language question,
-- return a constrained structured analytics request.
+- use a bounded history of prior validated query intent for follow-ups,
+- return a constrained structured read-only data request.
 
 The LLM must not:
 
@@ -364,7 +365,7 @@ All authoritative compensation results come from application logic and PostgreSQ
 
 The AI feature must fail independently. If the LLM provider is unavailable, employee search, compensation management, and deterministic analytics must continue to work.
 
-Do not send the complete employee dataset to the model.
+Do not send the complete employee dataset or prior result rows to the model. Conversation context may contain prior user questions and their already validated plans.
 
 Mock the LLM boundary in normal automated tests. Keep live-model evaluation separate from CI.
 
