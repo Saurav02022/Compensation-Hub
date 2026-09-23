@@ -1,7 +1,6 @@
 import json
 from collections.abc import Sequence
-from decimal import Decimal
-from urllib.parse import urlencode
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 from fastapi import FastAPI
@@ -25,12 +24,9 @@ SAMPLE = DATASET.employees[0]
 
 
 class FakePlanner:
-    """Returns canned provider text and records the context it receives."""
-
     def __init__(self, responses: dict[str, str]) -> None:
         self.responses = responses
         self.contexts: list[PlannerContext] = []
-        self.questions: list[str] = []
         self.histories: list[tuple[PlannerTurn, ...]] = []
 
     def plan(
@@ -39,7 +35,6 @@ class FakePlanner:
         context: PlannerContext,
         history: Sequence[PlannerTurn] = (),
     ) -> str:
-        self.questions.append(question)
         self.contexts.append(context)
         self.histories.append(tuple(history))
         return self.responses[question]
@@ -55,7 +50,39 @@ class BrokenPlanner:
         raise PlannerUnavailableError("connection refused")
 
 
-def planned(plan: dict[str, object]) -> str:
+def query(
+    *,
+    name: str = "answer",
+    select_items: list[dict[str, object]],
+    filters: list[dict[str, object]] | None = None,
+    group_by: list[str] | None = None,
+    order_by: list[dict[str, object]] | None = None,
+    distinct: bool = False,
+    limit: int | None = None,
+    target_currency: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "name": name,
+        "select": select_items,
+        "filters": filters or [],
+        "group_by": group_by or [],
+        "order_by": order_by or [],
+        "distinct": distinct,
+    }
+    if limit is not None:
+        payload["limit"] = limit
+    if target_currency is not None:
+        payload["target_currency"] = target_currency
+    return payload
+
+
+def planned(
+    queries: list[dict[str, object]],
+    calculation: dict[str, object] | None = None,
+) -> str:
+    plan: dict[str, object] = {"queries": queries}
+    if calculation is not None:
+        plan["calculation"] = calculation
     return json.dumps({"status": "plan", "plan": plan})
 
 
@@ -80,19 +107,24 @@ def ask(
     return body
 
 
-def test_aggregate_question_is_answered_from_database(seeded_client: TestClient) -> None:
+def test_count_question_is_derived_from_database(seeded_client: TestClient) -> None:
     question = f"How many {SAMPLE.department} employees are based in {SAMPLE.country}?"
     planner = FakePlanner(
         {
             question: planned(
-                {
-                    "kind": "aggregate",
-                    "metric": "employee_count",
-                    "filters": {
-                        "countries": [SAMPLE.country],
-                        "departments": [SAMPLE.department],
-                    },
-                }
+                [
+                    query(
+                        select_items=[{"alias": "employee_count", "aggregate": "count"}],
+                        filters=[
+                            {"field": "country", "op": "eq", "values": [SAMPLE.country]},
+                            {
+                                "field": "department",
+                                "op": "eq",
+                                "values": [SAMPLE.department],
+                            },
+                        ],
+                    )
+                ]
             )
         }
     )
@@ -100,7 +132,7 @@ def test_aggregate_question_is_answered_from_database(seeded_client: TestClient)
     expected = seeded_client.get(
         "/analytics/summary",
         params={"country": SAMPLE.country, "department": SAMPLE.department},
-    ).json()
+    ).json()["employee_count"]
 
     body = ask(seeded_client, question)
 
@@ -108,30 +140,35 @@ def test_aggregate_question_is_answered_from_database(seeded_client: TestClient)
     assert body["result"] == {
         "kind": "scalar",
         "currency": None,
-        "columns": [{"key": "value", "label": "Employee count", "format": "count"}],
-        "rows": [{"value": expected["employee_count"]}],
+        "columns": [{"key": "employee_count", "label": "Employee Count", "format": "count"}],
+        "rows": [{"employee_count": expected}],
     }
-    assert body["analytics_path"] == "/analytics?" + urlencode(
-        {
-            "country": SAMPLE.country,
-            "department": SAMPLE.department,
-            "metric": "headcount",
-        }
+    assert body["analytics_path"] == (
+        f"/analytics?metric=headcount&country={SAMPLE.country}&department={SAMPLE.department}"
     )
 
 
-def test_grouped_median_salary_is_supported(seeded_client: TestClient) -> None:
-    question = "Show median salary by department."
+def test_generic_grouped_query_can_rank_departments(seeded_client: TestClient) -> None:
+    question = "Which departments have the highest average salary?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "aggregate",
-                        "metric": "median_salary",
-                        "group_by": "department",
-                    }
+                    [
+                        query(
+                            select_items=[
+                                {"alias": "department", "field": "department"},
+                                {
+                                    "alias": "average_salary",
+                                    "field": "salary_usd",
+                                    "aggregate": "avg",
+                                },
+                            ],
+                            group_by=["department"],
+                            order_by=[{"key": "average_salary", "direction": "desc"}],
+                        )
+                    ]
                 )
             }
         ),
@@ -140,83 +177,78 @@ def test_grouped_median_salary_is_supported(seeded_client: TestClient) -> None:
     body = ask(seeded_client, question)
 
     assert body["status"] == "answered"
-    assert body["plan"]["metric"] == "median_salary"  # type: ignore[index]
     result = body["result"]
     assert isinstance(result, dict)
     assert result["kind"] == "table"
     assert result["currency"] == "USD"
-    assert result["rows"]
+    rows = result["rows"]
+    assert isinstance(rows, list)
+    assert rows
+    salaries = [Decimal(str(row["average_salary"])) for row in rows]
+    assert salaries == sorted(salaries, reverse=True)
 
 
-def test_follow_up_can_convert_previous_payroll_to_inr(
-    seeded_client: TestClient,
-    db_session: Session,
-) -> None:
-    first = "What is the total payroll in Germany?"
-    follow_up = "Convert that to Indian currency."
-    planner = FakePlanner(
-        {
-            first: planned(
-                {
-                    "kind": "aggregate",
-                    "metric": "total_payroll",
-                    "filters": {"countries": ["Germany"]},
-                }
-            ),
-            follow_up: planned(
-                {
-                    "kind": "aggregate",
-                    "metric": "total_payroll",
-                    "filters": {"countries": ["Germany"]},
-                    "target_currency": "INR",
-                }
-            ),
-        }
-    )
-    install(seeded_client, planner)
-
-    first_body = ask(seeded_client, first)
-    assert first_body["status"] == "answered"
-    first_plan = first_body["plan"]
-    assert isinstance(first_plan, dict)
-
-    second_body = ask(
+def test_generic_statistics_include_median(seeded_client: TestClient) -> None:
+    question = f"What is the median salary in {SAMPLE.department}?"
+    install(
         seeded_client,
-        follow_up,
-        history=[{"question": first, "plan": first_plan}],
+        FakePlanner(
+            {
+                question: planned(
+                    [
+                        query(
+                            select_items=[
+                                {
+                                    "alias": "median_salary",
+                                    "field": "salary_usd",
+                                    "aggregate": "median",
+                                }
+                            ],
+                            filters=[
+                                {
+                                    "field": "department",
+                                    "op": "eq",
+                                    "values": [SAMPLE.department],
+                                }
+                            ],
+                        )
+                    ]
+                )
+            }
+        ),
     )
 
-    assert second_body["status"] == "answered"
-    assert second_body["plan"]["target_currency"] == "INR"  # type: ignore[index]
-    assert second_body["result"]["currency"] == "INR"  # type: ignore[index]
-    assert "converted to INR" in str(second_body["interpretation"])
+    body = ask(seeded_client, question)
 
-    history = planner.histories[1]
-    assert len(history) == 1
-    assert history[0].question == first
-    assert '"total_payroll"' in history[0].plan_json
-
-    rate = db_session.scalar(select(FxRate.rate_to_usd).where(FxRate.currency_code == "INR"))
-    assert rate is not None
-    usd_value = Decimal(str(first_body["result"]["rows"][0]["value"]))  # type: ignore[index]
-    expected = (usd_value / Decimal(rate)).quantize(Decimal("0.01"))
-    assert Decimal(str(second_body["result"]["rows"][0]["value"])) == expected  # type: ignore[index]
+    assert body["status"] == "answered"
+    assert body["result"]["kind"] == "scalar"  # type: ignore[index]
+    assert body["result"]["currency"] == "USD"  # type: ignore[index]
+    assert Decimal(str(body["result"]["rows"][0]["median_salary"])) > 0  # type: ignore[index]
 
 
-def test_employee_ranking_returns_bounded_employee_rows(seeded_client: TestClient) -> None:
+def test_employee_ranking_is_a_bounded_generic_row_query(seeded_client: TestClient) -> None:
     question = f"Who are the three highest-paid employees in {SAMPLE.country}?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "employees",
-                        "filters": {"countries": [SAMPLE.country]},
-                        "sort_by": "salary_usd",
-                        "sort": "desc",
-                        "limit": 3,
-                    }
+                    [
+                        query(
+                            select_items=[
+                                {"alias": "employee", "field": "full_name"},
+                                {"alias": "employee_code", "field": "employee_code"},
+                                {"alias": "job_title", "field": "job_title"},
+                                {"alias": "country", "field": "country"},
+                                {"alias": "salary", "field": "salary_usd"},
+                            ],
+                            filters=[
+                                {"field": "country", "op": "eq", "values": [SAMPLE.country]}
+                            ],
+                            order_by=[{"key": "salary", "direction": "desc"}],
+                            limit=3,
+                        )
+                    ]
                 )
             }
         ),
@@ -227,25 +259,30 @@ def test_employee_ranking_returns_bounded_employee_rows(seeded_client: TestClien
     assert body["status"] == "answered"
     result = body["result"]
     assert isinstance(result, dict)
-    assert result["kind"] == "employees"
+    assert result["kind"] == "table"
     rows = result["rows"]
     assert isinstance(rows, list)
-    assert len(rows) <= 3
-    assert all("employee_code" in row and "local_compensation" in row for row in rows)
+    assert len(rows) == 3
+    salaries = [Decimal(str(row["salary"])) for row in rows]
+    assert salaries == sorted(salaries, reverse=True)
 
 
-def test_distinct_values_question_uses_stored_data(seeded_client: TestClient) -> None:
+def test_distinct_values_are_answered_from_stored_fields(seeded_client: TestClient) -> None:
     question = f"What currencies are used in {SAMPLE.country}?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "values",
-                        "field": "currency_code",
-                        "filters": {"countries": [SAMPLE.country]},
-                    }
+                    [
+                        query(
+                            select_items=[{"alias": "currency", "field": "currency_code"}],
+                            filters=[
+                                {"field": "country", "op": "eq", "values": [SAMPLE.country]}
+                            ],
+                            distinct=True,
+                        )
+                    ]
                 )
             }
         ),
@@ -254,23 +291,43 @@ def test_distinct_values_question_uses_stored_data(seeded_client: TestClient) ->
     body = ask(seeded_client, question)
 
     assert body["status"] == "answered"
-    assert body["result"]["kind"] == "table"  # type: ignore[index]
-    assert body["result"]["rows"]  # type: ignore[index]
+    rows = body["result"]["rows"]  # type: ignore[index]
+    assert rows == [{"currency": SAMPLE.currency_code}]
 
 
-def test_share_question_is_calculated_deterministically(seeded_client: TestClient) -> None:
+def test_percentage_is_calculated_from_two_safe_scalar_queries(
+    seeded_client: TestClient,
+) -> None:
     question = f"What percentage of employees are in {SAMPLE.department}?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "share",
-                        "metric": "employee_count",
-                        "filters": {"departments": [SAMPLE.department]},
-                        "denominator_filters": {},
-                    }
+                    [
+                        query(
+                            name="part",
+                            select_items=[{"alias": "count", "aggregate": "count"}],
+                            filters=[
+                                {
+                                    "field": "department",
+                                    "op": "eq",
+                                    "values": [SAMPLE.department],
+                                }
+                            ],
+                        ),
+                        query(
+                            name="whole",
+                            select_items=[{"alias": "count", "aggregate": "count"}],
+                        ),
+                    ],
+                    calculation={
+                        "op": "percentage",
+                        "left": {"query": "part", "column": "count"},
+                        "right": {"query": "whole", "column": "count"},
+                        "label": "Employee share",
+                        "format": "percent",
+                    },
                 )
             }
         ),
@@ -282,29 +339,106 @@ def test_share_question_is_calculated_deterministically(seeded_client: TestClien
 
     body = ask(seeded_client, question)
 
-    expected = (Decimal(expected_count) / Decimal(60) * 100).quantize(Decimal("0.01"))
+    expected = (
+        Decimal(expected_count) / Decimal(60) * 100
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     assert body["status"] == "answered"
-    assert Decimal(body["result"]["rows"][0]["value"]) == expected  # type: ignore[index]
+    assert Decimal(str(body["result"]["rows"][0]["value"])) == expected  # type: ignore[index]
 
 
-def test_comparison_question_is_calculated_from_two_scopes(seeded_client: TestClient) -> None:
-    first_country = DATASET.employees[0].country
-    second_country = next(
-        employee.country for employee in DATASET.employees if employee.country != first_country
+def test_follow_up_reuses_validated_intent_and_converts_currency(
+    seeded_client: TestClient,
+    db_session: Session,
+) -> None:
+    first = "What is the total payroll in Germany?"
+    follow_up = "Convert that to Indian currency."
+    first_program = [
+        query(
+            select_items=[
+                {"alias": "total_payroll", "field": "salary_usd", "aggregate": "sum"}
+            ],
+            filters=[{"field": "country", "op": "eq", "values": ["Germany"]}],
+        )
+    ]
+    planner = FakePlanner(
+        {
+            first: planned(first_program),
+            follow_up: planned(
+                [
+                    query(
+                        select_items=[
+                            {
+                                "alias": "total_payroll",
+                                "field": "salary_usd",
+                                "aggregate": "sum",
+                            }
+                        ],
+                        filters=[{"field": "country", "op": "eq", "values": ["Germany"]}],
+                        target_currency="INR",
+                    )
+                ]
+            ),
+        }
     )
-    question = f"Compare headcount in {first_country} and {second_country}."
+    install(seeded_client, planner)
+
+    first_body = ask(seeded_client, first)
+    first_plan = first_body["plan"]
+    assert isinstance(first_plan, dict)
+    second_body = ask(
+        seeded_client,
+        follow_up,
+        history=[{"question": first, "plan": first_plan}],
+    )
+
+    assert second_body["status"] == "answered"
+    assert second_body["result"]["currency"] == "INR"  # type: ignore[index]
+    assert "converted to INR" in str(second_body["interpretation"])
+    assert len(planner.histories[1]) == 1
+    assert '"Germany"' in planner.histories[1][0].plan_json
+
+    rate = db_session.scalar(select(FxRate.rate_to_usd).where(FxRate.currency_code == "INR"))
+    assert rate is not None
+    usd = Decimal(str(first_body["result"]["rows"][0]["total_payroll"]))  # type: ignore[index]
+    expected = (usd / Decimal(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    actual = Decimal(str(second_body["result"]["rows"][0]["total_payroll"]))  # type: ignore[index]
+    assert actual == expected
+
+
+def test_generic_comparison_uses_arithmetic_over_scalar_queries(
+    seeded_client: TestClient,
+) -> None:
+    countries = list(dict.fromkeys(employee.country for employee in DATASET.employees))
+    first_country, second_country = countries[:2]
+    question = f"How much larger is {first_country} headcount than {second_country}?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "compare",
-                        "metric": "employee_count",
-                        "filters": {"countries": [first_country]},
-                        "compare_filters": {"countries": [second_country]},
-                        "comparison": "difference",
-                    }
+                    [
+                        query(
+                            name="left",
+                            select_items=[{"alias": "count", "aggregate": "count"}],
+                            filters=[
+                                {"field": "country", "op": "eq", "values": [first_country]}
+                            ],
+                        ),
+                        query(
+                            name="right",
+                            select_items=[{"alias": "count", "aggregate": "count"}],
+                            filters=[
+                                {"field": "country", "op": "eq", "values": [second_country]}
+                            ],
+                        ),
+                    ],
+                    calculation={
+                        "op": "subtract",
+                        "left": {"query": "left", "column": "count"},
+                        "right": {"query": "right", "column": "count"},
+                        "label": "Headcount difference",
+                        "format": "count",
+                    },
                 )
             }
         ),
@@ -314,14 +448,30 @@ def test_comparison_question_is_calculated_from_two_scopes(seeded_client: TestCl
 
     assert body["status"] == "answered"
     assert body["result"]["kind"] == "scalar"  # type: ignore[index]
-    assert body["plan"]["comparison"] == "difference"  # type: ignore[index]
+    assert isinstance(body["result"]["rows"][0]["value"], int)  # type: ignore[index]
 
 
-def test_planner_sees_schema_vocabulary_but_never_employee_rows(
+def test_planner_receives_schema_vocabulary_but_not_employee_rows(
     seeded_client: TestClient,
 ) -> None:
     question = "What is our payroll?"
-    planner = FakePlanner({question: planned({"kind": "aggregate", "metric": "total_payroll"})})
+    planner = FakePlanner(
+        {
+            question: planned(
+                [
+                    query(
+                        select_items=[
+                            {
+                                "alias": "total_payroll",
+                                "field": "salary_usd",
+                                "aggregate": "sum",
+                            }
+                        ]
+                    )
+                ]
+            )
+        }
+    )
     install(seeded_client, planner)
 
     ask(seeded_client, question)
@@ -347,7 +497,7 @@ def test_planner_sees_schema_vocabulary_but_never_employee_rows(
     assert SAMPLE.employee_code not in shown
 
 
-def test_missing_gender_is_explained_instead_of_guessed(seeded_client: TestClient) -> None:
+def test_missing_field_is_explained_instead_of_guessed(seeded_client: TestClient) -> None:
     question = "How many male engineers are in India?"
     install(
         seeded_client,
@@ -368,22 +518,25 @@ def test_missing_gender_is_explained_instead_of_guessed(seeded_client: TestClien
     assert body["status"] == "unsupported"
     assert body["plan"] is None
     assert body["result"] is None
-    assert "data available in Compensation Hub" in str(body["answer"])
     assert "Gender is not stored" in str(body["answer"])
 
 
 @pytest.mark.parametrize(
     "raw",
     [
-        "not json at all",
+        "not json",
         json.dumps({"status": "plan"}),
         json.dumps(
             {
                 "status": "plan",
                 "plan": {
-                    "kind": "aggregate",
-                    "metric": "total_payroll",
-                    "sql": "SELECT * FROM compensation",
+                    "queries": [
+                        {
+                            "name": "unsafe",
+                            "select": [{"alias": "x", "aggregate": "count"}],
+                            "sql": "SELECT * FROM compensation",
+                        }
+                    ]
                 },
             }
         ),
@@ -391,26 +544,20 @@ def test_missing_gender_is_explained_instead_of_guessed(seeded_client: TestClien
             {
                 "status": "plan",
                 "plan": {
-                    "kind": "employees",
-                    "filters": {},
-                    "update": {"annual_salary": "*1.1"},
-                },
-            }
-        ),
-        json.dumps(
-            {
-                "status": "plan",
-                "plan": {
-                    "kind": "share",
-                    "metric": "average_salary",
-                    "denominator_filters": {},
+                    "queries": [
+                        {
+                            "name": "unsafe",
+                            "select": [{"alias": "x", "aggregate": "count"}],
+                            "update": {"annual_salary": "999999"},
+                        }
+                    ]
                 },
             }
         ),
         json.dumps({"status": "execute", "sql": "DELETE FROM compensation"}),
     ],
 )
-def test_invalid_or_sql_like_planner_output_is_rejected(
+def test_sql_or_write_like_planner_output_is_rejected(
     seeded_client: TestClient,
     raw: str,
 ) -> None:
@@ -424,20 +571,58 @@ def test_invalid_or_sql_like_planner_output_is_rejected(
     assert body["result"] is None
 
 
-def test_unknown_dimension_value_is_reported_instead_of_guessed(
+def test_local_salary_cannot_be_aggregated_across_currencies(
     seeded_client: TestClient,
 ) -> None:
+    question = "What is total local salary?"
+    install(
+        seeded_client,
+        FakePlanner(
+            {
+                question: planned(
+                    [
+                        query(
+                            select_items=[
+                                {
+                                    "alias": "total",
+                                    "field": "annual_salary",
+                                    "aggregate": "sum",
+                                }
+                            ]
+                        )
+                    ]
+                )
+            }
+        ),
+    )
+
+    body = ask(seeded_client, question)
+
+    assert body["status"] == "unsupported"
+    assert "across currencies" in str(body["answer"])
+
+
+def test_unknown_controlled_value_is_reported(seeded_client: TestClient) -> None:
     question = "What is the total payroll for Atlantis?"
     install(
         seeded_client,
         FakePlanner(
             {
                 question: planned(
-                    {
-                        "kind": "aggregate",
-                        "metric": "total_payroll",
-                        "filters": {"countries": ["Atlantis"]},
-                    }
+                    [
+                        query(
+                            select_items=[
+                                {
+                                    "alias": "total_payroll",
+                                    "field": "salary_usd",
+                                    "aggregate": "sum",
+                                }
+                            ],
+                            filters=[
+                                {"field": "country", "op": "eq", "values": ["Atlantis"]}
+                            ],
+                        )
+                    ]
                 )
             }
         ),
@@ -449,9 +634,7 @@ def test_unknown_dimension_value_is_reported_instead_of_guessed(
     assert "Atlantis" in str(body["answer"])
 
 
-def test_provider_outage_reports_unavailable_without_breaking_other_features(
-    seeded_client: TestClient,
-) -> None:
+def test_provider_outage_does_not_break_core_features(seeded_client: TestClient) -> None:
     install(seeded_client, BrokenPlanner())
 
     response = seeded_client.post(
@@ -465,25 +648,53 @@ def test_provider_outage_reports_unavailable_without_breaking_other_features(
     assert seeded_client.get("/employees").status_code == 200
 
 
-def test_question_and_history_are_bounded(seeded_client: TestClient) -> None:
+def test_question_history_and_query_limits_are_bounded(seeded_client: TestClient) -> None:
     install(seeded_client, FakePlanner({}))
 
     assert seeded_client.post("/analytics/ask", json={"question": "hi"}).status_code == 422
     assert seeded_client.post("/analytics/ask", json={"question": "x" * 501}).status_code == 422
 
-    plan = {"kind": "aggregate", "metric": "employee_count"}
-    history = [{"question": "How many employees?", "plan": plan}] * 7
+    valid_plan = {
+        "queries": [
+            {
+                "name": "answer",
+                "select": [{"alias": "employee_count", "aggregate": "count"}],
+            }
+        ]
+    }
+    history = [{"question": "How many employees?", "plan": valid_plan}] * 7
+    assert (
+        seeded_client.post(
+            "/analytics/ask",
+            json={"question": "What about now?", "history": history},
+        ).status_code
+        == 422
+    )
+
+    too_many_queries = [
+        query(name=f"q{index}", select_items=[{"alias": "count", "aggregate": "count"}])
+        for index in range(5)
+    ]
     response = seeded_client.post(
         "/analytics/ask",
-        json={"question": "What about now?", "history": history},
+        json={
+            "question": "Do everything.",
+            "history": [
+                {
+                    "question": "Previous valid question",
+                    "plan": {"queries": too_many_queries},
+                }
+            ],
+        },
     )
     assert response.status_code == 422
 
 
-def test_default_planner_is_unavailable_until_a_provider_is_configured(
+def test_default_planner_is_unavailable_without_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     planner = build_query_planner(Settings(_env_file=None))
 
     assert isinstance(planner, UnconfiguredQueryPlanner)
