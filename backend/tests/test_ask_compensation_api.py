@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from decimal import Decimal
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import FastAPI
@@ -110,8 +111,12 @@ def test_aggregate_question_is_answered_from_database(seeded_client: TestClient)
         "columns": [{"key": "value", "label": "Employee count", "format": "count"}],
         "rows": [{"value": expected["employee_count"]}],
     }
-    assert body["analytics_path"] == (
-        f"/analytics?country={SAMPLE.country}&department={SAMPLE.department}&metric=headcount"
+    assert body["analytics_path"] == "/analytics?" + urlencode(
+        {
+            "country": SAMPLE.country,
+            "department": SAMPLE.department,
+            "metric": "headcount",
+        }
     )
 
 
