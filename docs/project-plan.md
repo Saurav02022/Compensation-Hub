@@ -230,5 +230,6 @@ Requested by the product owner after Phase 8: rebuild the interface around patte
 - [x] Design loading, refresh, empty, error, and unavailable states on every surface.
 - [x] Complete a responsive and accessibility pass.
 - [x] Review the rendered product visually, refine it, and run the full verification.
+- [x] Redeploy the rebuilt frontend to Cloud Run and verify it in production.
 
 **Exit condition:** complete — the product runs in a sticky sidebar shell with Ask Compensation docked beside every page and on Ctrl/⌘ K, the directory and analytics stay server-backed and URL-addressable with bounded requests, analytics shows every measure beside its bars in one drill-down workspace, and lint, type, test, and build checks pass.

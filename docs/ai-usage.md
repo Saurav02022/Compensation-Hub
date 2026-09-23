@@ -384,6 +384,32 @@ How it was verified: 66 frontend tests, eslint, tsc, and next build; 112
   375 px.
 ```
 
+```text
+Date: 2026-09-23
+Tool: Claude Code
+Task: Phase 9 — production redeploy of the rebuilt frontend
+How AI was used: Built the frontend image for main with Cloud Build, deployed
+  it to the existing Cloud Run web service, ran the production smoke test in a
+  browser, and reviewed the Cloud Run request and error logs.
+What was accepted: The backend was left on its running image because the only
+  backend change since it was built is a test file, and no migration was added
+  after 0003; the frontend kept its existing service account and API base URL.
+What was changed or rejected: The API logs showed 132 employee-detail requests
+  during a journey that opened a handful of employees. Production builds
+  prefetch every visible directory row, and the detail page resolved
+  generateMetadata during that prefetch, so each results page fetched up to 25
+  employees; the per-employee page title was dropped, which a local production
+  build confirmed reduces a directory view to the list and filter-option
+  requests, and the fix was redeployed.
+How it was verified: 66 frontend tests, eslint, tsc, and next build; CI green;
+  the redesign visible in production at 1440 and 390 px; search by name and
+  code, combined filters, pagination, reload and back/forward, a salary edit
+  restored to its original value, analytics drill-down and measure switching,
+  a live Ask question, an unsupported question, and the panel across
+  navigation all passed; no warnings, errors, or non-200 responses in either
+  service log after the deploy.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.
