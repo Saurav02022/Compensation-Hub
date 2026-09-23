@@ -2,29 +2,35 @@
 
 ## Overview
 
-Compensation Hub is a small modular web application with three primary runtime components:
+Compensation Hub is a modular web application with a Next.js frontend, a FastAPI backend, and PostgreSQL as the system of record.
+
+The production request path is:
 
 ```text
 Browser
    |
+   | HTTPS
    v
-Next.js Frontend
+Next.js / Cloud Run
    |
-   | REST / JSON
+   | server-side REST / JSON
    v
-FastAPI Backend
+FastAPI / Cloud Run
    |
-   v
-PostgreSQL
+   +----------------------+
+   |                      |
+   | SQL                  | structured planning request
+   v                      v
+Supabase PostgreSQL    Gemini API
 ```
 
-The frontend is responsible for user interaction and presentation.
+The browser interacts with the Next.js application. Backend API access stays server-side in the frontend, including page data loading and Server Actions. The browser does not receive the backend base URL as public configuration and does not call PostgreSQL or the Gemini API directly.
 
-The backend owns product rules, validation, compensation calculations, analytics, and AI orchestration.
+The backend owns product rules, validation, compensation calculations, analytics, persistence, and Ask Compensation orchestration.
 
-PostgreSQL is the source of truth for employee and compensation data.
+PostgreSQL is authoritative for employee, compensation, FX-rate, and analytics data.
 
-The system remains a modular monolith. The current scale and product scope do not require independently deployed backend services.
+The system remains a modular monolith. The current product scope and 10,000-employee dataset do not justify distributed backend services, caches, queues, or additional data stores.
 
 ---
 
@@ -32,44 +38,48 @@ The system remains a modular monolith. The current scale and product scope do no
 
 ### Frontend
 
-* Next.js
-* React
-* TypeScript
+- Next.js
+- React
+- TypeScript
 
-The frontend communicates with the backend only through the public REST API. It does not access the database or duplicate compensation business rules.
+The frontend owns presentation, navigation, user interactions, loading and error states, and server-side calls to the backend API.
+
+Search, filter, pagination, and analytics state are represented in URLs where useful so views survive refresh and browser navigation.
 
 ### Backend
 
-* Python 3.12
-* FastAPI
-* Pydantic
-* SQLAlchemy 2
-* Alembic
-* Psycopg
+- Python 3.12
+- FastAPI
+- Pydantic
+- SQLAlchemy 2
+- Alembic
+- Psycopg
 
-FastAPI exposes the application API.
+FastAPI exposes the product API.
 
-Pydantic defines and validates API contracts and AI-generated structured requests.
+Pydantic validates API contracts and structured Ask Compensation plans.
 
-SQLAlchemy owns database access and query construction.
+SQLAlchemy owns query construction and database access.
 
-Alembic manages schema migrations.
+Alembic manages schema changes.
 
 ### Database
 
 PostgreSQL stores:
 
-* employees,
-* current compensation,
-* seeded foreign-exchange rates.
+- employees,
+- current compensation,
+- deterministic currency-to-USD exchange rates.
 
-Monetary values use fixed-precision numeric types rather than floating-point values.
+Monetary values use fixed-precision numeric types rather than binary floating point.
+
+The production PostgreSQL instance is hosted on Supabase and reached through the session-mode connection pooler.
 
 ---
 
-## Backend Boundaries
+## Application Boundaries
 
-The backend is one deployable application with clear internal modules.
+The backend is one deployable application with explicit internal responsibilities.
 
 ```text
 FastAPI
@@ -89,41 +99,42 @@ FastAPI
 
 Responsible for:
 
-* employee directory,
-* search,
-* filtering,
-* pagination,
-* employee details.
+- employee directory,
+- search,
+- filtering,
+- pagination,
+- filter options,
+- employee details.
 
 ### Compensation
 
 Responsible for:
 
-* current salary retrieval,
-* salary updates,
-* compensation validation.
+- current salary retrieval,
+- salary updates,
+- compensation validation,
+- supported-currency validation.
 
-Compensation writes remain deterministic application operations. AI is not involved in this path.
+Compensation writes are deterministic application operations. Ask Compensation is not involved in this path.
 
 ### Analytics
 
 Responsible for:
 
-* employee count,
-* total annual payroll,
-* average annual salary,
-* grouping by country, department, and job title,
-* currency normalization.
+- employee count,
+- total annual payroll,
+- average annual salary,
+- grouping by country, department, and job title,
+- filtering,
+- currency normalization.
 
-Aggregations are executed by PostgreSQL rather than by loading the full employee dataset into application memory.
+Aggregations execute in PostgreSQL rather than loading the full employee dataset into Python or the browser.
 
 ### Ask Compensation
 
-Responsible for converting natural-language questions into supported analytics operations.
+Responsible for converting supported natural-language questions into constrained analytics operations.
 
-It does not own compensation calculations. It delegates validated requests to the same analytics capability used by the rest of the application.
-
-This keeps dashboard results and natural-language results consistent.
+It does not own compensation calculations. Validated plans are executed through the same analytics capability used by the rest of the application, so natural-language answers and analytics views share one source of truth.
 
 ---
 
@@ -154,7 +165,7 @@ currency_code
 
 Each employee has one current compensation record.
 
-Compensation is modeled separately so employee identity and compensation concerns remain distinct, while avoiding salary-history complexity in the MVP.
+Compensation is modeled separately from employee identity so compensation rules remain isolated without introducing salary-history complexity.
 
 ### FX Rate
 
@@ -163,21 +174,21 @@ currency_code
 rate_to_usd
 ```
 
-Rates are seeded and deterministic.
+Rates are deterministic seeded values.
 
-Cross-country analytics calculate normalized values using:
+Cross-country analytics calculate normalized salary when needed:
 
 ```text
 salary_in_usd = annual_salary * rate_to_usd
 ```
 
-The normalized salary is calculated when needed rather than stored as a second salary value. This avoids duplicated monetary data becoming inconsistent with the configured exchange rate.
+Normalized salary is not persisted as a second salary value, avoiding duplicated monetary data that could diverge from the configured exchange rate.
 
 ---
 
 ## API
 
-The initial API surface is intentionally small.
+The backend API is intentionally small and aligned with product workflows.
 
 ```text
 GET    /health
@@ -198,28 +209,26 @@ POST   /analytics/ask
 
 `GET /employees` supports:
 
-* page,
-* page size,
-* search,
-* country,
-* department,
-* job title.
+- page,
+- page size,
+- search,
+- country,
+- department,
+- job title.
 
-Pagination is performed in PostgreSQL.
+Search, filtering, ordering, and pagination are executed in PostgreSQL.
 
-`GET /employees/filter-options` returns the distinct countries, departments, and job titles so the directory can offer exact-match filters.
+`GET /employees/filter-options` returns the distinct countries, departments, and job titles used by exact-match directory filters.
 
 ### Compensation update
 
 `PATCH /employees/{employee_id}/compensation` updates current compensation only.
 
-The backend validates monetary values and currency before persistence.
+The backend validates the salary amount and currency before persistence.
 
 ### Analytics
 
-The analytics endpoints expose the same underlying analytics service used by Ask Compensation.
-
-This prevents separate implementations of the same compensation calculations.
+The analytics endpoints expose the same analytics service used by Ask Compensation. There is no separate calculation path for natural-language answers.
 
 ---
 
@@ -231,7 +240,7 @@ Natural-language analytics follows a constrained flow:
 HR question
     |
     v
-LLM
+Gemini
     |
     v
 Structured Query Plan
@@ -252,9 +261,7 @@ PostgreSQL
 Exact Result
 ```
 
-The LLM is responsible only for interpreting language.
-
-A query plan can contain supported concepts such as:
+A plan can contain supported concepts such as:
 
 ```text
 metric
@@ -264,7 +271,7 @@ sort
 limit
 ```
 
-Examples of supported metrics include:
+Supported metrics include:
 
 ```text
 employee_count
@@ -280,25 +287,25 @@ department
 job_title
 ```
 
-The application validates the plan before execution.
+The model is responsible for language interpretation only.
 
-The LLM:
+It:
 
-* has no database credentials,
-* does not generate executable SQL,
-* cannot perform writes,
-* does not calculate authoritative compensation values,
-* does not receive the complete employee dataset.
+- has no database credentials,
+- does not generate executable SQL,
+- cannot perform writes,
+- does not calculate authoritative compensation values,
+- does not receive the complete employee dataset.
 
-If a question cannot be represented by the supported analytics model, the request is rejected as unsupported rather than approximated.
+The backend validates every generated plan before execution. Unsupported questions are rejected rather than approximated.
 
-The LLM provider is kept behind a small application interface so provider-specific code does not leak into product logic. The current adapter targets the Gemini API (see D012); the interface receives the question and the supported dimension values, returns the model's raw JSON text, and nothing else.
+Provider-specific code is isolated behind a small planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
 
 ---
 
 ## Currency Handling
 
-The employee experience uses local salary and local currency.
+Employee-level compensation is stored and displayed in local currency.
 
 Organization-level monetary analytics use USD.
 
@@ -314,7 +321,7 @@ $28,800 USD
 
 The backend performs normalization using the seeded FX-rate table.
 
-A missing exchange rate is treated as an error. The application must not silently exclude an employee or treat currencies as directly comparable.
+A missing exchange rate is an error. The application does not silently exclude affected employees or treat different currencies as directly comparable.
 
 ---
 
@@ -322,56 +329,101 @@ A missing exchange rate is treated as an error. The application must not silentl
 
 The application is designed around 10,000 employee records.
 
-This does not require distributed infrastructure, but it does require sensible database access.
+The directory uses bounded server-side access:
 
-The system will:
+```text
+search / filters / page
+        |
+        v
+Next.js server
+        |
+        v
+FastAPI
+        |
+        v
+PostgreSQL
+        |
+        v
+bounded employee page
+```
 
-* use server-side pagination,
-* perform aggregations in PostgreSQL,
-* avoid loading all employees into application memory,
-* use a unique index for employee code,
-* index common filter fields where query behavior justifies it,
-* validate maximum page sizes.
+The system:
 
-Additional indexes should be introduced based on actual query patterns rather than added speculatively.
+- uses server-side pagination,
+- performs search and filtering in PostgreSQL,
+- performs analytics aggregation in PostgreSQL,
+- avoids loading all employees into application or browser memory,
+- validates maximum page sizes,
+- uses indexes for demonstrated access patterns,
+- uses deterministic text collation for stable ordering across environments.
+
+Directory prefetch behavior is also bounded. Employee detail data is fetched when the employee is opened rather than solely to construct per-employee page metadata.
+
+No Redis, search engine, cache, queue, or additional database is introduced without measured need.
+
+---
+
+## Frontend Interaction Model
+
+The final application shell keeps the primary product areas available while preserving working context.
+
+- Employee directory state is URL-addressable.
+- Analytics dimension, measure, and filter state are URL-addressable.
+- Ask Compensation is available across primary pages.
+- The assistant remains beside the page on wide screens and uses an overlay presentation at narrower widths.
+- Supported Ask Compensation results can link into the corresponding Analytics view.
+
+These are presentation choices; product rules and authoritative calculations remain in the backend.
 
 ---
 
 ## Failure Boundaries
 
-Core compensation workflows must not depend on the AI provider.
-
-If the LLM service is unavailable:
+Core workflows do not depend on the language-model provider.
 
 ```text
 Employee directory       works
 Compensation management  works
-Dashboard analytics      works
+Analytics                works
 Ask Compensation         unavailable
 ```
 
-Invalid AI output is rejected before reaching the analytics layer.
+Invalid model output is rejected before reaching the analytics layer.
 
 Database or application failures return controlled API errors rather than partial compensation results.
 
-Sensitive configuration such as database credentials and LLM API keys is provided through environment variables and is never committed to the repository.
+Sensitive configuration such as database credentials and the Gemini API key is provided through runtime configuration and is not committed to the repository.
 
 ---
 
-## Deployment Shape
+## Deployment
 
-The product is deployed as:
+Production uses independently deployable frontend and backend services:
 
 ```text
-Next.js application
-        |
-FastAPI application
-        |
-PostgreSQL database
+Browser
+   |
+   v
+Cloud Run: compensation-hub-web
+   |
+   v
+Cloud Run: compensation-hub-api
+   |
+   +-----------------------------+
+   |                             |
+   v                             v
+Supabase PostgreSQL          Gemini API
 ```
 
-Frontend and backend are independently deployable, while the backend remains one application internally.
+Deployment characteristics:
 
-Local development will use the same boundaries so behavior does not depend on a special development-only architecture.
+- frontend: Cloud Run in `asia-south1`,
+- backend: Cloud Run in `asia-south1`,
+- database: Supabase PostgreSQL in `ap-south-1`,
+- images: built by Cloud Build from the repository Dockerfiles,
+- secrets: stored in Google Secret Manager,
+- local runtime: uses the same frontend/backend/database boundaries through Docker Compose.
 
-No additional infrastructure is introduced unless a demonstrated product or operational need requires it.
+The backend remains one application internally even though the frontend and backend are deployed independently.
+
+No additional infrastructure is introduced unless product behavior, measured performance, or operational requirements justify it.
