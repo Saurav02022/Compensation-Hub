@@ -58,8 +58,14 @@ Identifier = Annotated[
     str,
     StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z][A-Za-z0-9_]{0,49}$"),
 ]
-QuestionText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=500)]
-FilterValue = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+QuestionText = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=3, max_length=500),
+]
+FilterValue = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=200),
+]
 CurrencyCode = Annotated[
     str, StringConstraints(strip_whitespace=True, to_upper=True, pattern=r"^[A-Z]{3}$")
 ]
