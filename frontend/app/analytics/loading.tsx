@@ -2,21 +2,18 @@ import { Skeleton } from "@/components/ui/States";
 
 export default function Loading() {
   return (
-    <div className="space-y-4" aria-busy="true">
-      <div className="space-y-2">
+    <div className="space-y-5" aria-busy="true" aria-label="Loading analytics">
+      <div className="space-y-2 pt-1">
         <Skeleton className="h-6 w-32" />
-        <Skeleton className="h-4 w-96 max-w-full" />
+        <Skeleton className="h-3.5 w-96 max-w-full" />
       </div>
-      <Skeleton className="h-24 w-full rounded-surface" />
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Skeleton className="h-24 rounded-surface" />
-        <Skeleton className="h-24 rounded-surface" />
-        <Skeleton className="h-24 rounded-surface" />
+      <div className="flex flex-wrap gap-2">
+        <Skeleton className="h-8 w-28" />
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-8 w-28" />
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-80 rounded-surface" />
-        <Skeleton className="h-80 rounded-surface" />
-      </div>
+      <Skeleton className="h-[106px] rounded-surface" />
+      <Skeleton className="h-[480px] rounded-surface" />
     </div>
   );
 }

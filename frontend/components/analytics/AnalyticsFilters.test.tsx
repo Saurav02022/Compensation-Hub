@@ -1,13 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RouteTransitionProvider } from "@/components/ui/RouteTransition";
+import type { AnalyticsView } from "@/lib/api/analytics";
+import { resetRouter, router } from "@/test/router";
+import type { AnalyticsFilters as Filters } from "@/types/analytics";
 import { AnalyticsFilters } from "./AnalyticsFilters";
 
-const replace = vi.fn();
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace, push: vi.fn(), refresh: vi.fn() }),
-}));
+vi.mock("next/navigation", async () => {
+  const { router: mockRouter } = await import("@/test/router");
+  return { useRouter: () => mockRouter };
+});
 
 const options = {
   countries: ["Germany", "India"],
@@ -15,30 +18,42 @@ const options = {
   job_titles: ["Paralegal"],
 };
 
-describe("AnalyticsFilters", () => {
-  beforeEach(() => replace.mockClear());
+function renderFilters(filters: Filters, view: AnalyticsView = { by: "country", metric: "payroll" }) {
+  return render(
+    <RouteTransitionProvider>
+      <AnalyticsFilters filters={filters} view={view} options={options} />
+    </RouteTransitionProvider>,
+  );
+}
 
-  it("applies a filter immediately and keeps the others", () => {
-    render(<AnalyticsFilters filters={{ country: "India" }} options={options} />);
+describe("AnalyticsFilters", () => {
+  beforeEach(resetRouter);
+
+  it("applies a filter immediately and keeps the other filters and the breakdown view", () => {
+    renderFilters({ country: "India" }, { by: "job_title", metric: "average" });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Department" }), { target: { value: "Sales" } });
 
-    expect(replace).toHaveBeenCalledWith("/analytics?country=India&department=Sales");
+    expect(router.replace).toHaveBeenCalledWith(
+      "/analytics?country=India&department=Sales&by=job_title&metric=average",
+      { scroll: false },
+    );
   });
 
-  it("explains the scope and clears all filters", () => {
-    render(<AnalyticsFilters filters={{ department: "Sales" }} options={options} />);
+  it("removes a single filter or clears them all", () => {
+    renderFilters({ country: "India", department: "Sales" });
 
-    expect(screen.getByRole("status")).toHaveTextContent("Filters apply to every metric and chart on this page.");
+    fireEvent.click(screen.getByRole("button", { name: "Remove country filter" }));
+    expect(router.replace).toHaveBeenLastCalledWith("/analytics?department=Sales", { scroll: false });
+
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
-
-    expect(replace).toHaveBeenCalledWith("/analytics");
+    expect(router.replace).toHaveBeenLastCalledWith("/analytics", { scroll: false });
   });
 
-  it("describes the whole organization when nothing is filtered", () => {
-    render(<AnalyticsFilters filters={{}} options={options} />);
+  it("offers no clear action when nothing is filtered", () => {
+    renderFilters({});
 
-    expect(screen.getByRole("status")).toHaveTextContent("Showing the whole organization.");
+    expect(screen.getByRole("combobox", { name: "Country" })).toHaveValue("");
     expect(screen.queryByRole("button", { name: "Clear all" })).not.toBeInTheDocument();
   });
 });

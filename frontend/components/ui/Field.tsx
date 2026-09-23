@@ -35,10 +35,6 @@ export function Input({ className = "", ...props }: ComponentProps<"input">) {
   return <input className={`${CONTROL_CLASS} ${className}`} {...props} />;
 }
 
-export function Select({ className = "", ...props }: ComponentProps<"select">) {
-  return <select className={`${CONTROL_CLASS} ${className}`} {...props} />;
-}
-
 export function Textarea({ className = "", ...props }: ComponentProps<"textarea">) {
   return (
     <textarea
