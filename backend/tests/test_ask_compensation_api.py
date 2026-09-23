@@ -242,9 +242,7 @@ def test_employee_ranking_is_a_bounded_generic_row_query(seeded_client: TestClie
                                 {"alias": "country", "field": "country"},
                                 {"alias": "salary", "field": "salary_usd"},
                             ],
-                            filters=[
-                                {"field": "country", "op": "eq", "values": [SAMPLE.country]}
-                            ],
+                            filters=[{"field": "country", "op": "eq", "values": [SAMPLE.country]}],
                             order_by=[{"key": "salary", "direction": "desc"}],
                             limit=3,
                         )
@@ -339,9 +337,9 @@ def test_percentage_is_calculated_from_two_safe_scalar_queries(
 
     body = ask(seeded_client, question)
 
-    expected = (
-        Decimal(expected_count) / Decimal(60) * 100
-    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    expected = (Decimal(expected_count) / Decimal(60) * 100).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     assert body["status"] == "answered"
     assert Decimal(str(body["result"]["rows"][0]["value"])) == expected  # type: ignore[index]
 
@@ -354,9 +352,7 @@ def test_follow_up_reuses_validated_intent_and_converts_currency(
     follow_up = "Convert that to Indian currency."
     first_program = [
         query(
-            select_items=[
-                {"alias": "total_payroll", "field": "salary_usd", "aggregate": "sum"}
-            ],
+            select_items=[{"alias": "total_payroll", "field": "salary_usd", "aggregate": "sum"}],
             filters=[{"field": "country", "op": "eq", "values": ["Germany"]}],
         )
     ]
@@ -420,16 +416,12 @@ def test_generic_comparison_uses_arithmetic_over_scalar_queries(
                         query(
                             name="left",
                             select_items=[{"alias": "count", "aggregate": "count"}],
-                            filters=[
-                                {"field": "country", "op": "eq", "values": [first_country]}
-                            ],
+                            filters=[{"field": "country", "op": "eq", "values": [first_country]}],
                         ),
                         query(
                             name="right",
                             select_items=[{"alias": "count", "aggregate": "count"}],
-                            filters=[
-                                {"field": "country", "op": "eq", "values": [second_country]}
-                            ],
+                            filters=[{"field": "country", "op": "eq", "values": [second_country]}],
                         ),
                     ],
                     calculation={
@@ -618,9 +610,7 @@ def test_unknown_controlled_value_is_reported(seeded_client: TestClient) -> None
                                     "aggregate": "sum",
                                 }
                             ],
-                            filters=[
-                                {"field": "country", "op": "eq", "values": ["Atlantis"]}
-                            ],
+                            filters=[{"field": "country", "op": "eq", "values": ["Atlantis"]}],
                         )
                     ]
                 )
