@@ -150,9 +150,9 @@ The API is intentionally designed around supported product workflows rather than
 
 ## D009 — Use AI for language understanding, not authoritative calculation
 
-Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured analytics request.
+Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured read-only data request.
 
-Application code validates that request and PostgreSQL performs the actual calculation.
+Application code validates that request and constructs the database operation with SQLAlchemy. PostgreSQL and deterministic application logic perform the authoritative query or calculation.
 
 The LLM does not:
 
@@ -170,7 +170,7 @@ Keeping interpretation probabilistic and calculation deterministic gives the AI 
 
 **Trade-off**
 
-Ask Compensation can answer only questions supported by the product's analytics model.
+Ask Compensation can answer only questions that can be represented by the validated read-only query model and derived from data the product actually stores.
 
 ---
 
@@ -266,7 +266,7 @@ Natural-language analytics is most useful while the HR Manager is already workin
 
 **Trade-off**
 
-The application shell owns additional cross-page state and responsive behavior. The assistant remains intentionally limited to supported compensation analytics rather than becoming a general conversational workspace.
+The application shell owns additional cross-page state and responsive behavior. The assistant remains read-only and grounded in Compensation Hub data rather than becoming an unrestricted general-purpose chatbot.
 
 ---
 
@@ -317,3 +317,31 @@ Removing that metadata fetch keeps directory navigation bounded to the list and 
 **Trade-off**
 
 Employee detail browser tabs show the generic Compensation Hub title instead of the employee's name.
+
+---
+
+## D019 — Broaden Ask Compensation with a constrained data-query model, not RAG or text-to-SQL
+
+Ask Compensation accepts any read-only natural-language question that can be derived from the employee, current-compensation, and FX data stored by Compensation Hub.
+
+The validated plan can represent:
+
+- aggregates including count, total, average, minimum, maximum, and median,
+- filtering and grouping over stored dimensions,
+- bounded employee lookup and ranking,
+- distinct stored values,
+- percentages and direct comparisons,
+- deterministic currency conversion using the FX table,
+- contextual follow-up questions using prior validated plans.
+
+The language model receives the current question, schema vocabulary, and a bounded history of prior questions plus their validated plans. Previous result rows and salary values are not sent back to the model as conversation context.
+
+**Why**
+
+The original three-metric analytics plan was safe but narrower than the conversational product experience. Questions such as employee ranking, percentages, median salary, stored-value discovery, and "convert that to INR" are answerable from existing data and should not fail merely because they were not anticipated as dashboard operations.
+
+RAG does not solve this problem because the source of truth is structured relational data rather than documents. Free-form text-to-SQL would increase the query surface and make validation harder. A richer structured plan keeps the language-understanding layer flexible while application code retains control of the operations that can execute.
+
+**Trade-off**
+
+The plan still cannot express every possible computation. New query capabilities must be added deliberately when they can be validated and executed safely. Questions that require absent fields, historical data, external knowledge, or subjective compensation decisions remain unanswerable and are reported as such.
