@@ -293,12 +293,12 @@ Model output is parsed with sqlglot's PostgreSQL dialect and rejected unless:
 
 - it is exactly one SELECT (including WITH, UNION, INTERSECT, EXCEPT),
 - every syntax node is on the allowlist: joins, WHERE with AND/OR/NOT, IN, LIKE/ILIKE, BETWEEN, IS, CASE, arithmetic, DISTINCT, GROUP BY, HAVING, ORDER BY, LIMIT/OFFSET, CTEs, subqueries, EXISTS, FILTER, WITHIN GROUP, and window functions,
-- every function is on the allowlist: COUNT, SUM, AVG, MIN, MAX, STDDEV, MEDIAN, PERCENTILE_CONT/DISC, ROUND, ABS, FLOOR, CEIL, COALESCE, NULLIF, GREATEST, LEAST, LOWER, UPPER, TRIM, LENGTH, CONCAT, RANK, DENSE_RANK, ROW_NUMBER, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE,
-- it reads only `employees`, `fx_rates`, and its own CTEs, with no schema-qualified, system, or catalog relation,
+- every function is on the allowlist: COUNT, SUM, AVG, MIN, MAX, STDDEV, MEDIAN, PERCENTILE_CONT/DISC, ROUND, ABS, FLOOR, CEIL, COALESCE, NULLIF, GREATEST, LEAST, LOWER, UPPER, RANK, DENSE_RANK, ROW_NUMBER, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE,
+- it reads only `employees`, `fx_rates`, and its own CTEs, with no schema-qualified, system, catalog, or physical application table,
 - every column exists, casts are to NUMERIC, integer, or text types only, and nothing is recursive, lateral, parameterized, or locking,
 - it stays within the bounds: 5,000 characters, 1,000 syntax nodes, 4 levels of nesting, 8 CTEs, 4 joins per SELECT, 4 set operations, a final LIMIT of at most 100, and inner LIMIT or OFFSET of at most 10,000.
 
-Statements such as INSERT, UPDATE, DELETE, MERGE, DDL, COPY, CALL, DO, SET, transaction control, SELECT INTO, and FOR UPDATE, and functions such as `pg_sleep`, `pg_read_file`, `set_config`, or `current_setting`, are refused outright. Unknown relations and columns are reported by name, which is how a question needing absent data becomes a missing-data answer.
+Statements such as INSERT, UPDATE, DELETE, MERGE, DDL, COPY, CALL, DO, SET, transaction control, SELECT INTO, and FOR UPDATE, and functions that read server or session state or run SQL of their own, such as `pg_sleep`, `pg_read_file`, `set_config`, `current_setting`, `version`, `query_to_xml`, or `dblink`, are refused outright. Naming a physical table such as `compensation` is refused the same way. Unknown relations and columns are reported by name, which is how a question needing absent data becomes a missing-data answer.
 
 The bounds are sized for a 10,000-employee surface: generous enough for multi-step analytical questions, small enough that a runaway query is rejected before it reaches the statement timeout.
 
@@ -312,9 +312,9 @@ Every result column is traced through CTEs, subqueries, and correlated reference
 
 ### Rewrites and execution
 
-The validated tree is rewritten before rendering. Medians (`MEDIAN` or `PERCENTILE_CONT(0.5)`) become the average of the lower and upper middle values from `percentile_disc`, which stays an exact NUMERIC value where `percentile_cont` would compute in double precision. Every division casts its dividend to NUMERIC and divides by `NULLIF(divisor, 0)`, so integer division never truncates and a zero divisor yields no value. Every string literal becomes a bound parameter, so no text from the model is spliced into the executed SQL, and comments are dropped.
+The validated tree is rewritten before rendering. Medians (`MEDIAN` or `PERCENTILE_CONT(0.5)`) become the average of the lower and upper middle values from `percentile_disc`, which stays an exact NUMERIC value where `percentile_cont` would compute in double precision. Other percentiles are computed by PostgreSQL in double precision and then rounded, so they can differ from an exact NUMERIC calculation in the smallest unit. Every division casts its dividend to NUMERIC and divides by `NULLIF(divisor, 0)`, so integer division never truncates and a zero divisor yields no value. Every string literal becomes a bound parameter, so no text from the model is spliced into the executed SQL, and comments are dropped.
 
-The executed SQL is the surface CTEs followed by the rendered query. It runs in a `READ ONLY` transaction with a 5-second statement timeout. At most 100 rows are returned; when there are more, the total is counted separately. If the planner's response is rejected, or PostgreSQL reports a syntax, data, or cardinality error, the planner gets one correction attempt with the reason; a write or out-of-surface request gets none.
+The executed SQL is the surface CTEs followed by the rendered query. It runs in a `READ ONLY` transaction with a 5-second statement timeout. At most 100 rows are returned; when there are more, the total is counted separately. If the planner's response is rejected, PostgreSQL reports a syntax, data, or cardinality error, or the query exceeds the timeout, the planner gets one correction attempt with the reason; a write or out-of-surface request gets none. A missing privilege or table, a read-only violation, or any other database error is not treated as a planner mistake: it is raised as a server error, or reported as a read-only refusal.
 
 ### Conversation
 

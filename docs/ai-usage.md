@@ -57,7 +57,7 @@ The model returns one of three responses:
 
 - a query: one SELECT over the approved `employees` and `fx_rates` relations, the answer currency, a one-sentence reading of what the query computes, which result columns are percentages, and which column holds the headline figure,
 - a missing-data response naming the data the question needs,
-- an unsupported response for requests that are not factual questions about the data.
+- an unsupported response for requests that are not factual questions about the data; the product answers these with fixed wording rather than the model's reason.
 
 The backend parses every query, accepts only allowlisted read-only constructs and functions within size limits, enforces the money rules, and executes SQL rebuilt from the validated syntax tree in a read-only transaction. A rejected response gets one correction attempt; a write or out-of-surface request gets none.
 
@@ -437,14 +437,24 @@ What was changed or rejected: A custom query representation was built and
   were rejected at first because schema-guided output adds keys; responses that
   carry no SQL now ignore extra keys. A timeout test caught the context queries
   sharing the planned-query timeout, which now has its own.
-How it was verified: 250 backend tests (103 validator cases on parsed SQL, 23
-  execution cases against PostgreSQL), ruff, and mypy; 70 frontend tests,
-  eslint, tsc, and next build; the 35-case live evaluation passed on four clean
-  runs at the low thinking level, which was kept after medium scored 34 of 35 and
-  ran 45% slower; questions written after implementation, follow-ups, a topic
-  reset, missing-data, write, and injection requests were exercised on the
-  10,000-employee database with ten figures checked by independent SQL; a salary
-  edit was reflected in an answer and restored; the provider-unavailable
+  A final review then found that rate arithmetic could launder a currency
+  conversion past the money rules (rate * 1, rate / rate), that local salaries
+  could reach an aggregate through a scalar subquery, that dynamic-SQL and
+  session functions such as query_to_xml and version() were offered a
+  correction instead of being refused, that a missing privilege or table was
+  retried as a planner mistake, that declined answers showed the model's own
+  wording, and that a model LIMIT equal to the row cap hid the total; each was
+  fixed with regression tests, and unused text functions were removed.
+How it was verified: 276 backend tests (122 validator cases on parsed SQL, 23
+  execution cases against PostgreSQL, 37 API cases), ruff, and mypy; 70
+  frontend tests, eslint, tsc, and next build, all repeated from a fresh clone;
+  the live evaluation passed 35 of 35 on four runs, then 44 of 44 on two runs
+  after it was extended, at the low thinking level, which was kept after medium
+  scored 34 of 35 and ran 45% slower; representative query shapes ran in 1-19
+  ms on 10,000 employees; questions written after implementation, follow-ups,
+  topic resets, missing-data, write, and injection requests were exercised
+  through the UI and API with twenty figures checked by independent SQL; salary
+  edits were reflected in answers and restored; the provider-unavailable
   response was checked with no key.
 ```
 

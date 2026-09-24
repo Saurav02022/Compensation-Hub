@@ -209,7 +209,7 @@ Ask Compensation calls the Gemini API through the official `google-genai` Python
 
 The model is configured through `GEMINI_MODEL` (default `gemini-3.8-flash`) and the key through `GEMINI_API_KEY`. When no key is configured the feature reports itself unavailable.
 
-Planning uses the `low` thinking level, configurable through `GEMINI_THINKING_LEVEL`. On the 35-case live SQL evaluation, `low` passed every case on four clean runs at 105-117 seconds per run, while `medium` passed 34 of 35 in 152 seconds, so the extra latency bought no reliability.
+Planning uses the `low` thinking level, configurable through `GEMINI_THINKING_LEVEL`. On the live SQL evaluation, `low` passed every case on four clean runs of the 35-case set (105-117 seconds per run) and on two runs of the extended 44-case set, while `medium` passed 34 of 35 in 152 seconds, so the extra latency bought no reliability.
 
 **Why**
 
@@ -350,7 +350,7 @@ A dedicated read-only database role was considered. Creating one needs CREATEROL
 
 **Trade-off**
 
-Answerability is bounded by the stored data, by read-only SELECT queries over the two relations, by the allowlisted functions and constructs, and by the size and time limits. Answer quality depends on the model's reading of the question; the application guarantees that whatever runs is valid, read-only, and exact, and every answer carries a plain-language reading of its query so the interpretation can be checked. Ask Compensation runs its own queries rather than calling the Analytics endpoints; both read the same joins and salary normalization, and tests compare them.
+Answerability is bounded by the stored data, by read-only SELECT queries over the two relations, by the allowlisted functions and constructs, and by the size and time limits. Medians are exact, but other percentiles are computed by PostgreSQL in double precision before rounding. A comparison written as a correlated subquery re-reads the surface for every employee and can exceed the timeout; the planner is steered to window functions and gets one correction. Answer quality depends on the model's reading of the question; the application guarantees that whatever runs is valid, read-only, and exact, and every answer carries a plain-language reading of its query so the interpretation can be checked. Ask Compensation runs its own queries rather than calling the Analytics endpoints; both read the same joins and salary normalization, and tests compare them.
 
 ---
 
