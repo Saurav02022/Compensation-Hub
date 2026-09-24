@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,7 @@ class Settings(BaseSettings):
     gemini_api_key: SecretStr | None = None
     gemini_model: str = "gemini-3.8-flash"
     gemini_timeout_seconds: float = 20.0
+    gemini_thinking_level: Literal["low", "medium", "high"] = "low"
 
     @field_validator("gemini_api_key", mode="before")
     @classmethod

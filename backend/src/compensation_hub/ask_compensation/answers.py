@@ -1,62 +1,58 @@
 """Deterministic wording for Ask Compensation results.
 
-Every sentence here is composed by application code from the validated query and the rows
-PostgreSQL returned; the model never writes an answer or a figure.
+Every figure in an answer is taken from the rows PostgreSQL returned and phrased by application
+code; the model never writes an answer or a number.
 """
 
 from decimal import Decimal
 
+from sqlglot import exp
+
 from compensation_hub.ask_compensation.execution import CellValue, QueryResult, ResultColumn
-from compensation_hub.ask_compensation.validation import ValidatedQuery
 
 ANALYTICS_DIMENSIONS = frozenset({"country", "department", "job_title"})
-COMPARISON_SYMBOLS = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "eq": "=", "ne": "≠"}
+NUMERIC_TYPES = frozenset({"count", "money", "percent", "number"})
 
 
 def format_value(value: CellValue, column: ResultColumn) -> str:
     if value is None:
         return "not available"
-    if column.type == "count" and isinstance(value, int):
+    if isinstance(value, int) and not isinstance(value, bool):
         return f"{value:,}"
     if isinstance(value, Decimal):
-        if column.type == "money":
+        if column.type == "money" and column.currency:
             return f"{column.currency} {value:,.2f}"
         if column.type == "percent":
             return f"{value:,.2f}%"
-        return f"{value:,.2f}"
+        return f"{value:,.2f}" if column.type == "money" else f"{value.normalize():,f}"
     return str(value)
 
 
-def primary_column(query: ValidatedQuery) -> str | None:
-    """The figure the question is about: the final calculation, otherwise the first measure."""
-    if query.kind == "rows":
-        return None
-    if query.calculations:
-        return query.calculations[-1].name
-    return query.measures[0].name
+def is_scalar(result: QueryResult) -> bool:
+    """One row of figures with no labels is shown as a headline rather than a table."""
+    return len(result.rows) == 1 and all(column.type in NUMERIC_TYPES for column in result.columns)
 
 
-def _uses_money(query: ValidatedQuery) -> bool:
-    if query.kind == "rows":
-        return any(spec.kind == "money" for spec in query.fields)
-    return any(measure.unit == "money" for measure in query.measures) or any(
-        condition.field.kind == "money" for condition in query.conditions
-    )
+def primary_column(result: QueryResult, requested: str | None) -> str | None:
+    """The headline figure: the column the planner named, otherwise the last figure."""
+    keys = [column.key for column in result.columns]
+    if requested is not None and requested.lower() in keys:
+        return requested.lower()
+    numeric = [column.key for column in result.columns if column.type in NUMERIC_TYPES]
+    return numeric[-1] if numeric else None
 
 
-def compose_answer(query: ValidatedQuery, result: QueryResult) -> str:
+def compose_answer(result: QueryResult, primary: str | None, currency: str) -> str:
     money_note = (
-        f" Amounts are in {query.currency} at the fixed exchange rates."
-        if _uses_money(query)
+        f" Amounts are in {currency} at the fixed exchange rates."
+        if any(column.type == "money" and column.currency for column in result.columns)
         else ""
     )
     shown = len(result.rows)
-
-    if query.kind == "aggregate" and not query.group_by:
-        if not result.rows:
-            return "No figures match the conditions." + money_note
+    if shown == 0:
+        return "No rows match the question."
+    if is_scalar(result):
         row = result.rows[0]
-        primary = primary_column(query)
         ordered = sorted(
             zip(result.columns, row.values, strict=True), key=lambda item: item[0].key != primary
         )
@@ -64,92 +60,82 @@ def compose_answer(query: ValidatedQuery, result: QueryResult) -> str:
             f"{column.label}: {format_value(value, column)}" for column, value in ordered
         )
         return f"{figures}.{money_note}"
-
-    if query.kind == "rows":
-        noun = "employee" if result.total_rows == 1 else "employees"
-    elif len(query.group_by) == 1:
-        spec = query.group_by[0]
-        noun = spec.label if result.total_rows == 1 else spec.plural
-    else:
-        noun = "group" if result.total_rows == 1 else "groups"
-
-    if shown == 0:
-        return "No employees match the conditions." if query.kind == "rows" else f"No {noun} match."
+    noun = "result" if result.total_rows == 1 else "results"
     if result.total_rows > shown:
         return f"Showing the first {shown:,} of {result.total_rows:,} {noun}.{money_note}"
     return f"{shown:,} {noun}.{money_note}"
 
 
-def describe_query(query: ValidatedQuery) -> str:
-    """A plain reading of what was computed, so the HR Manager can check the interpretation."""
-    parts: list[str] = []
-    if query.kind == "rows":
-        parts.append("Employees, showing " + ", ".join(spec.label for spec in query.fields))
-    else:
-        labels = query.labels()
-        names = [item.name for item in query.measures] + [item.name for item in query.calculations]
-        measures = "; ".join(labels[name] for name in names)
-        if query.group_by:
-            measures += " by " + " and ".join(spec.label for spec in query.group_by)
-        parts.append(measures)
-    if query.conditions:
-        parts.append("where " + "; ".join(condition.description for condition in query.conditions))
-    if query.having:
-        labels = query.labels()
-        parts.append(
-            "only where "
-            + "; ".join(
-                f"{labels[condition.key]} {COMPARISON_SYMBOLS[condition.op]} "
-                f"{condition.value.normalize():,f}"
-                for condition in query.having
-            )
-        )
-    if query.order:
-        labels = query.labels()
-        parts.append(
-            "ordered by "
-            + ", ".join(
-                f"{labels[order.key]} {'highest' if order.descending else 'lowest'} first"
-                for order in query.order
-            )
-        )
-    if query.limit is not None:
-        parts.append(f"at most {query.limit}")
-    if _uses_money(query):
-        parts.append(f"amounts in {query.currency}")
-    return " · ".join(parts)
-
-
-def analytics_view(query: ValidatedQuery) -> dict[str, str | None] | None:
-    """Describe the Analytics workspace view with the same figures, if the query has one.
-
-    Analytics shows headcount, payroll, or average salary in USD, optionally by one dimension and
-    filtered to exact dimension values; anything beyond that has no equivalent view.
-    """
-    if query.kind != "aggregate" or query.calculations or query.having or query.currency != "USD":
-        return None
-    if len(query.measures) != 1 or len(query.group_by) > 1:
-        return None
-    measure = query.measures[0]
-    if measure.conditions:
-        return None
-    salary = measure.field is not None and measure.field.name == "salary"
-    if measure.function == "count" and measure.field is None:
-        metric = "headcount"
-    elif salary and measure.function == "sum":
-        metric = "payroll"
-    elif salary and measure.function == "avg":
-        metric = "average"
-    else:
-        return None
-    group = query.group_by[0].name if query.group_by else None
-    if group is not None and group not in ANALYTICS_DIMENSIONS:
-        return None
-
-    view: dict[str, str | None] = {"group_by": group, "metric": metric}
-    for condition in query.conditions:
-        name = condition.field.name
-        if condition.op != "eq" or name not in ANALYTICS_DIMENSIONS or name in view:
+def _dimension_filters(where: exp.Expr | None) -> dict[str, str] | None:
+    if where is None:
+        return {}
+    filters: dict[str, str] = {}
+    conditions = list(where.flatten()) if isinstance(where, exp.And) else [where]
+    for condition in conditions:
+        if not isinstance(condition, exp.EQ):
             return None
-        view[name] = condition.values[0]
-    return view
+        column, value = condition.this, condition.expression
+        if isinstance(value, exp.Column):
+            column, value = value, column
+        if not (
+            isinstance(column, exp.Column)
+            and column.name in ANALYTICS_DIMENSIONS
+            and isinstance(value, exp.Literal)
+            and value.is_string
+            and column.name not in filters
+        ):
+            return None
+        filters[column.name] = str(value.this)
+    return filters
+
+
+def _metric(node: exp.Expr) -> str | None:
+    if isinstance(node, exp.Round):
+        node = node.this
+    if isinstance(node, exp.Count) and (
+        isinstance(node.this, exp.Star)
+        or (isinstance(node.this, exp.Column) and node.this.name == "employee_id")
+    ):
+        return "headcount"
+    if isinstance(node, (exp.Sum, exp.Avg)) and isinstance(node.this, exp.Column):
+        if node.this.name == "salary_usd":
+            return "payroll" if isinstance(node, exp.Sum) else "average"
+    return None
+
+
+def analytics_view(tree: exp.Query, currency: str) -> dict[str, str | None] | None:
+    """The Analytics workspace view that shows the same figures, if the query has one.
+
+    Analytics shows headcount, payroll, or average salary in USD over the employees surface,
+    optionally by one dimension and filtered to exact dimension values.
+    """
+    if currency != "USD" or not isinstance(tree, exp.Select):
+        return None
+    if tree.args.get("with_") or tree.args.get("joins") or tree.args.get("having"):
+        return None
+    source = tree.args.get("from_")
+    if source is None or not isinstance(source.this, exp.Table) or source.this.name != "employees":
+        return None
+    filters = _dimension_filters(tree.args["where"].this if tree.args.get("where") else None)
+    if filters is None:
+        return None
+    group = tree.args.get("group")
+    group_columns = group.expressions if group else []
+    if len(group_columns) > 1:
+        return None
+    dimension = None
+    if group_columns:
+        grouped = group_columns[0]
+        if not isinstance(grouped, exp.Column) or grouped.name not in ANALYTICS_DIMENSIONS:
+            return None
+        dimension = grouped.name
+
+    metrics = []
+    for projection in tree.selects:
+        value = projection.unalias()
+        if isinstance(value, exp.Column) and value.name == dimension:
+            continue
+        metrics.append(_metric(value))
+    if len(metrics) != 1 or metrics[0] is None:
+        return None
+    return {"group_by": dimension, "metric": metrics[0], **filters}

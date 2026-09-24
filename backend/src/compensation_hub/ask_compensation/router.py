@@ -29,15 +29,16 @@ PlannerDep = Annotated[QueryPlanner, Depends(get_query_planner)]
 
 @router.post("/ask", response_model=AskResponse)
 def ask_compensation(session: SessionDep, planner: PlannerDep, payload: AskRequest) -> AskResponse:
-    history = [PlannerTurn(question=turn.question, query=turn.query) for turn in payload.history]
+    history = [
+        PlannerTurn(question=turn.question, sql=turn.sql, currency=turn.currency)
+        for turn in payload.history
+    ]
     outcome = ask(session, payload.question, history, planner)
 
     result = None
-    if outcome.result is not None and outcome.validated is not None:
+    if outcome.result is not None:
         result = AskResultRead(
-            kind="table"
-            if outcome.validated.kind == "rows" or outcome.validated.group_by
-            else "scalar",
+            kind="scalar" if outcome.scalar else "table",
             columns=[
                 ResultColumnRead(
                     key=column.key,
@@ -62,7 +63,8 @@ def ask_compensation(session: SessionDep, planner: PlannerDep, payload: AskReque
         answer=outcome.answer,
         interpretation=outcome.interpretation,
         missing=list(outcome.missing),
-        query=outcome.query,
+        sql=outcome.sql,
+        currency=outcome.currency,
         result=result,
         analytics_view=(
             AnalyticsViewRead.model_validate(outcome.analytics_view)
