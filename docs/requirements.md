@@ -61,7 +61,7 @@ The HR Manager can ask compensation and workforce questions in natural language.
 
 If Compensation Hub holds the data a question needs, Ask Compensation derives the answer from that data. If the data is not stored, it says which data is missing instead of guessing.
 
-Answerability depends on the stored data and the supported read-only operations, not on a list of anticipated questions. Supported operations include filtering, looking up and ranking employees, counting, totals, averages, medians, minimums and maximums, grouping, shares and percentages, differences and ratios, and expressing amounts in any currency with a seeded exchange rate.
+Answerability depends on the stored data and read-only relational queries over it, not on a list of anticipated questions. That includes filtering with any combination of conditions, looking up and ranking employees, counting, totals, averages, medians, minimums and maximums, grouping, comparisons with a group's own figures, rankings within groups, shares and percentages, differences and ratios, and expressing amounts in any currency with a seeded exchange rate. Answers stay within the product's safety and resource limits.
 
 The HR Manager can ask follow-up questions that refine the previous one, such as converting a result to another currency or narrowing it to a department, without restating the whole question.
 
@@ -79,7 +79,7 @@ The MVP does not include:
 - bonuses, benefits, equity, or tax calculations,
 - live exchange-rate synchronization,
 - salary recommendations,
-- arbitrary AI-generated SQL (Ask Compensation produces only validated read-only queries),
+- running AI-generated SQL without validation (Ask Compensation runs only validated, read-only SQL over the approved employee and compensation data),
 - document search or RAG.
 
 These capabilities can be considered later if product requirements justify them.

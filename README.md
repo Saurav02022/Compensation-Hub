@@ -34,24 +34,21 @@ If Compensation Hub stores the data a question needs, Ask Compensation derives t
 HR question (+ earlier questions in the conversation)
     |
     v
-LLM
+LLM: candidate read-only SQL
     |
     v
-Structured read-only query
+SQL parser -> syntax tree -> allowlist, bounds, and money-rule validation
     |
     v
-Validation against the stored fields and data
-    |
-    v
-PostgreSQL (read-only transaction)
+PostgreSQL (read-only transaction, statement timeout)
     |
     v
 Exact result
 ```
 
-Questions are not matched against a fixed list. The model expresses each question as a query over the stored fields (filters, employee rows, counts, totals, averages, medians, minimums and maximums, grouping, shares, differences, and currency conversion with the seeded rates), and the backend validates it before running it. Follow-up questions such as "Convert that to INR" refine the previous question.
+Questions are not matched against a fixed list. The model writes a SELECT over two approved relations, `employees` and `fx_rates`, which the application defines over the real tables. The backend parses that SQL, accepts only allowlisted read-only constructs and functions within size limits, enforces the money rules (amounts combined only in USD, local salaries never aggregated), and runs the SQL it rebuilt from the validated syntax tree. Follow-up questions such as "Convert that to INR" refine the previous question.
 
-The LLM interprets intent; it is not the source of truth. It does not receive database credentials or employee records, does not write SQL, cannot change data, and does not calculate or phrase the figures in an answer.
+The LLM interprets intent; it is not the source of truth. It does not receive database credentials or employee records, never runs SQL itself, cannot change data, and does not calculate or phrase the figures in an answer.
 
 ## Architecture
 
@@ -141,7 +138,7 @@ uv run uvicorn compensation_hub.main:app --reload
 
 `.env.example` documents every backend environment variable. The API reads `DATABASE_URL` at startup.
 
-Ask Compensation uses the Gemini API through the official `google-genai` SDK. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in `.env` to enable it. Without a key the API answers `POST /analytics/ask` with `503` and a clear message, and every other feature keeps working.
+Ask Compensation uses the Gemini API through the official `google-genai` SDK. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL` and `GEMINI_THINKING_LEVEL`) in `.env` to enable it. Without a key the API answers `POST /analytics/ask` with `503` and a clear message, and every other feature keeps working.
 
 The seed command loads the deterministic dataset of 10,000 employees, their current compensation, and the exchange rates. It refuses to run against a database that already contains employees; pass `--reset` to truncate the MVP tables and load the same dataset again.
 

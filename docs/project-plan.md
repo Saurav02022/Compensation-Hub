@@ -238,22 +238,24 @@ A second design pass rebuilt the interface around patterns observed in current B
 
 ## Phase 10 — Data-Grounded Ask Compensation
 
-Ask Compensation rejected questions the stored data could answer because it mapped every question onto a fixed set of analytics metrics. This phase makes it answer any question that can be expressed over the stored data, and name the missing data otherwise.
+Ask Compensation rejected questions the stored data could answer, first because it mapped every question onto a fixed set of analytics metrics and then because a custom query representation could not express many relational questions. This phase answers any factual read-only question the stored data can answer through controlled, validated SQL, and names the missing data otherwise.
 
 - [x] Review the Ask Compensation implementation and the stored data model.
-- [x] Research structured output, query validation, and aggregate semantics, and compare architectural options.
-- [x] Define the field catalog that decides answerability.
-- [x] Define a general, bounded, read-only query representation.
-- [x] Validate queries against the catalog, the category values in the data, and the configured currencies.
-- [x] Execute validated queries as one bounded SELECT in a read-only transaction.
+- [x] Research SQL parsers, PostgreSQL read-only semantics, and structured output, and compare architectural options.
+- [x] Define the approved data surface that decides answerability.
+- [x] Parse and validate candidate SQL against allowlists, bounds, and the surface.
+- [x] Enforce money rules by tracing result columns to the surface.
+- [x] Rewrite validated SQL deterministically and run it in a read-only transaction with a timeout.
+- [x] Give the planner one correction attempt for rejected or failing SQL.
 - [x] Report missing data and unsupported requests explicitly.
-- [x] Carry follow-up context as earlier validated queries, never results.
+- [x] Carry follow-up context as earlier validated SQL, never results, and reset it for new questions.
 - [x] Render any result generically in the Ask Compensation panel.
-- [x] Test the query engine directly, the API with a mocked planner, and the panel.
-- [x] Update the live-model evaluation with varied, follow-up, missing-data, and adversarial questions.
+- [x] Remove the custom query representation.
+- [x] Test the validator on parsed SQL, execution against PostgreSQL, the API with a mocked planner, and the panel.
+- [x] Update the live-model evaluation with varied, relational, follow-up, missing-data, and adversarial questions.
+- [x] Re-evaluate the Gemini thinking level on the SQL evaluation.
 - [x] Verify end to end against the seeded database and review query performance.
 - [x] Record the decisions and update the documentation.
 - [ ] Redeploy to Cloud Run after review.
 
-**Exit condition:** questions answerable from the stored data are answered from it through validated read-only queries, including follow-ups; questions needing absent data name what is missing; lint, type, test, and build checks pass.
-
+**Exit condition:** questions answerable from the stored data are answered from it through validated read-only SQL, including follow-ups; questions needing absent data name what is missing; writes and reads outside the surface cannot run; lint, type, test, and build checks pass.

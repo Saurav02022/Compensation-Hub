@@ -57,7 +57,9 @@ Search, filter, pagination, and analytics state are represented in URLs where us
 
 FastAPI exposes the product API.
 
-Pydantic validates API contracts and the structured queries Ask Compensation plans.
+Pydantic validates API contracts and the planner's structured responses.
+
+sqlglot parses and validates the SQL Ask Compensation's planner writes before it is executed.
 
 SQLAlchemy owns query construction and database access.
 
@@ -132,19 +134,20 @@ Aggregations execute in PostgreSQL rather than loading the full employee dataset
 
 ### Ask Compensation
 
-Responsible for converting natural-language questions into validated read-only queries over the stored employee and compensation data, running them in PostgreSQL, and explaining which data is missing when a question cannot be answered.
+Responsible for answering natural-language questions from the stored employee and compensation data with controlled read-only SQL, and for explaining which data is missing when a question cannot be answered.
 
 It is organized by responsibility:
 
-- `catalog` — the fields Ask Compensation can reason about and the operations each field kind allows,
-- `plan` — the query representation the model produces, with its structural limits,
-- `validation` — checks a query against the catalog, the category values in the data, and the configured currencies,
-- `execution` — turns a validated query into one bounded SQLAlchemy SELECT in a read-only transaction,
-- `answers` — composes the answer text, the plain-language reading of the query, and the matching Analytics view,
+- `surface` — the approved relations and columns Ask Compensation can query, with their units and definitions,
+- `plan` — the structured response the planner must return,
+- `sql_validation` — parses candidate SQL, checks it against the allowlists and bounds, rewrites it deterministically, and renders the executable query,
+- `sql_units` — traces result columns to the surface and enforces the money rules,
+- `execution` — runs validated SQL in a read-only transaction and types the result,
+- `answers` — composes the answer text and finds the matching Analytics view,
 - `provider` — the planner interface and the Gemini adapter,
-- `service` and `router` — orchestration and the HTTP boundary.
+- `service` and `router` — orchestration, the single correction attempt, and the HTTP boundary.
 
-Ask Compensation reads the same tables with the same joins and salary normalization as Analytics, so equivalent questions give the same figures.
+Ask Compensation reads the same joins and salary normalization as Analytics, so equivalent questions give the same figures.
 
 ---
 
@@ -238,95 +241,96 @@ The backend validates the salary amount and currency before persistence.
 
 ### Analytics
 
-The analytics endpoints expose the analytics service behind the Overview and Analytics pages. Ask Compensation runs its own validated queries but uses the same joins and the same `salary_in_usd` expression, and its tests compare results with this service.
+The analytics endpoints expose the analytics service behind the Overview and Analytics pages. Ask Compensation runs its own validated queries over the same joins and the same `salary_in_usd` expression, and its tests compare results with this service.
 
 ### Ask Compensation
 
-`POST /analytics/ask` takes a question and up to four earlier questions with the validated queries they produced. It returns the status (`answered`, `missing_data`, or `unsupported`), the answer text, the validated query, a plain-language reading of it, the result as typed columns and rows, and the equivalent Analytics view when one exists.
+`POST /analytics/ask` takes a question and up to four earlier questions with the validated SQL and answer currency they used. It returns the status (`answered`, `missing_data`, or `unsupported`), the answer text, the planner's plain-language reading of the query, the validated SQL and currency for follow-ups, the result as typed columns and rows, and the equivalent Analytics view when one exists.
 
 ---
 
 ## Ask Compensation
 
-Ask Compensation answers a question from the stored data whenever the question can be expressed as a supported read-only query, and says which data is missing otherwise.
+If Compensation Hub has the data required to answer a factual read-only question, Ask Compensation derives the answer from that data. If the required data is not stored, it reports what is missing rather than inventing it. Answerability is bounded by the stored data, by read-only queries over the approved relations, by the SQL constructs the validator allows, and by the size and time limits below.
 
 ```text
-HR question (+ earlier questions and their validated queries)
+HR question (+ up to 4 earlier questions with their validated SQL)
     |
     v
-Gemini: planning only
+Gemini: candidate read-only SQL, or missing_data / unsupported
     |
     v
-Structured query or a missing-data / unsupported response
+sqlglot parser -> syntax tree
     |
     v
-Pydantic structure checks
+Allowlist and bounds validation, qualification against the surface, money rules
     |
     v
-Validation against the field catalog, category values, and currencies
+Deterministic rewrites, literals bound as parameters, SQL rendered from the tree
     |
     v
-One bounded SELECT in a read-only PostgreSQL transaction
+Surface CTEs + validated query in a READ ONLY PostgreSQL transaction with a timeout
     |
     v
-Exact result, composed into an answer by application code
+Exact result, amounts converted with the seeded rates, answer composed by application code
 ```
 
-### Field catalog
+### Approved data surface
 
-The catalog is the complete description of what Ask Compensation can know:
+The planner never sees the database's tables. It queries two logical relations that the executor defines as `NOT MATERIALIZED` CTEs over the real tables in front of every query:
 
 ```text
-employee_code   text       filter; count
-full_name       text       filter; count
-country         category   filter; group; count
-department      category   filter; group; count
-job_title       category   filter; group; count
-currency        category   filter; group; count
-salary          money      filter; count, sum, avg, median, min, max; order
-local_salary    money      employee rows only, in the employee's own currency
+employees    employee_id, employee_code, full_name, country, department, job_title,
+             salary_currency, salary_local, salary_usd
+fx_rates     currency_code, rate_to_usd
 ```
 
-`salary` is `annual_salary * rate_to_usd`, expressed in the query's answer currency. `local_salary` is never aggregated or compared, because amounts in different currencies cannot be combined. A field that is not in the catalog does not exist for Ask Compensation; exposing a new attribute means adding it to the catalog deliberately.
+`salary_usd` is `annual_salary * rate_to_usd`. `salary_local` is the salary in the employee's own currency. Employees without compensation keep a row with NULL salary columns, so they count as employees but contribute no salary. These relations are the complete description of what Ask Compensation can know; exposing a new attribute means adding it to the surface deliberately.
 
-### Query representation
+### Validation
 
-A query is either a list of employee rows or a set of aggregate measures:
+Model output is parsed with sqlglot's PostgreSQL dialect and rejected unless:
 
-```text
-kind            rows | aggregate
-filters         conditions on catalog fields, all of which must hold
-fields          fields to show (rows)
-group_by        up to two category fields (aggregate)
-measures        count, count_distinct, sum, avg, median, min, max, each with optional own filters
-calculations    add, subtract, multiply, divide, percent over measures, earlier calculations, or numbers
-having          conditions on measures or calculations
-order_by        fields (rows) or grouped fields, measures, and calculations (aggregate)
-limit           at most 100 rows or groups; employee lists default to 25
-currency        the answer currency, USD unless another configured currency is asked for
-```
+- it is exactly one SELECT (including WITH, UNION, INTERSECT, EXCEPT),
+- every syntax node is on the allowlist: joins, WHERE with AND/OR/NOT, IN, LIKE/ILIKE, BETWEEN, IS, CASE, arithmetic, DISTINCT, GROUP BY, HAVING, ORDER BY, LIMIT/OFFSET, CTEs, subqueries, EXISTS, FILTER, WITHIN GROUP, and window functions,
+- every function is on the allowlist: COUNT, SUM, AVG, MIN, MAX, STDDEV, MEDIAN, PERCENTILE_CONT/DISC, ROUND, ABS, FLOOR, CEIL, COALESCE, NULLIF, GREATEST, LEAST, LOWER, UPPER, TRIM, LENGTH, CONCAT, RANK, DENSE_RANK, ROW_NUMBER, NTILE, LAG, LEAD, FIRST_VALUE, LAST_VALUE,
+- it reads only `employees`, `fx_rates`, and its own CTEs, with no schema-qualified, system, or catalog relation,
+- every column exists, casts are to NUMERIC, integer, or text types only, and nothing is recursive, lateral, parameterized, or locking,
+- it stays within the bounds: 5,000 characters, 1,000 syntax nodes, 4 levels of nesting, 8 CTEs, 4 joins per SELECT, 4 set operations, a final LIMIT of at most 100, and inner LIMIT or OFFSET of at most 10,000.
 
-The representation has no way to name a table, write SQL, or describe a write.
+Statements such as INSERT, UPDATE, DELETE, MERGE, DDL, COPY, CALL, DO, SET, transaction control, SELECT INTO, and FOR UPDATE, and functions such as `pg_sleep`, `pg_read_file`, `set_config`, or `current_setting`, are refused outright. Unknown relations and columns are reported by name, which is how a question needing absent data becomes a missing-data answer.
 
-### Validation and execution
+The bounds are sized for a 10,000-employee surface: generous enough for multi-step analytical questions, small enough that a runaway query is rejected before it reaches the statement timeout.
 
-The application, not the model, decides what is valid. Before any data is read it checks that every field exists in the catalog, every operation suits its field kind, category values exist in the data (matched without regard to case), currencies have a seeded rate, names are unique and references point backwards, arithmetic combines compatible units (no money multiplied by money, no money added to a headcount), expressions nest at most three levels, and limits are within bounds.
+### Money rules
 
-Execution builds one SELECT over employees LEFT JOIN compensation LEFT JOIN fx_rates, with every plan value bound as a parameter, inside a `READ ONLY` transaction with a statement timeout. Employees without compensation count as employees but contribute no salary. Text matching escapes wildcard characters. Division by a zero aggregate yields no value rather than an error. Medians average the lower and upper middle values from `percentile_disc`, so they stay exact NUMERIC values; `percentile_cont` would compute in double precision. Row and group results that hit their limit also report the total number of matches.
+Every result column is traced through CTEs, subqueries, and correlated references back to the surface columns it is computed from. That decides how the column is shown (text, count, money, percent, or number) and rejects calculations that would produce a wrong amount:
+
+- `salary_local` may be shown beside `salary_currency` or compared, but never aggregated, windowed, or used in arithmetic, because it mixes currencies,
+- amounts cannot be multiplied by amounts, added to counts, or divided into counts,
+- amounts are never converted in SQL; they stay in USD and the application converts results to the answer currency with the seeded rates in Decimal.
+
+### Rewrites and execution
+
+The validated tree is rewritten before rendering. Medians (`MEDIAN` or `PERCENTILE_CONT(0.5)`) become the average of the lower and upper middle values from `percentile_disc`, which stays an exact NUMERIC value where `percentile_cont` would compute in double precision. Every division casts its dividend to NUMERIC and divides by `NULLIF(divisor, 0)`, so integer division never truncates and a zero divisor yields no value. Every string literal becomes a bound parameter, so no text from the model is spliced into the executed SQL, and comments are dropped.
+
+The executed SQL is the surface CTEs followed by the rendered query. It runs in a `READ ONLY` transaction with a 5-second statement timeout. At most 100 rows are returned; when there are more, the total is counted separately. If the planner's response is rejected, or PostgreSQL reports a syntax, data, or cardinality error, the planner gets one correction attempt with the reason; a write or out-of-surface request gets none.
 
 ### Conversation
 
-The frontend keeps the conversation in the application shell and sends up to four earlier answered questions with their validated queries. The planner receives them as prior turns and must still return a complete query, which is validated like any other. Result rows are never sent back to the model.
+The frontend keeps the conversation in the application shell and sends up to four earlier answered questions with their validated SQL and answer currency. The backend validates that SQL again but never executes it. The planner decides whether a new question refers back to earlier turns; the currency and filters of earlier turns carry over only when it does. Result rows are never sent back to the model.
 
 ### Model boundary
 
-The planner receives the question, the prior turns, the catalog, the category values present in the data, and the configured currency codes. It:
+The planner receives the question, the prior turns, the surface description, the distinct values of the category columns, and the configured currency codes. It:
 
 - has no database credentials,
-- does not generate executable SQL,
+- never executes SQL; its SQL runs only after validation and re-rendering,
 - cannot perform writes,
 - does not calculate or phrase authoritative values,
 - does not receive employee records or results.
+
+Answer text is composed by application code from the returned rows. The planner's one-sentence reading of its query is written before the query runs, so it contains no results.
 
 Provider-specific code is isolated behind a small planner interface. If the provider is unavailable, only Ask Compensation is unavailable; deterministic product workflows continue to operate.
 
