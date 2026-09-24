@@ -177,7 +177,7 @@ function NotAnswered({ response }: { response: AskResponse }) {
     <div role="status" className="rounded-surface border border-border bg-surface-muted px-3.5 py-3 text-[13px]">
       <p className="flex items-center gap-2 font-medium text-ink">
         <Icon name="info" className="text-ink-muted" />
-        {missing ? "Not in the data" : "Can't answer this reliably"}
+        {missing ? "Not in the data" : "Can't answer this"}
       </p>
       <p className="mt-1.5 text-ink-secondary">{response.answer}</p>
     </div>

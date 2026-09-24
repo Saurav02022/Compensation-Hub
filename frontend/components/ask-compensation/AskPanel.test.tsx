@@ -10,19 +10,20 @@ import type { AskExchange } from "./types";
 const share: AskResponse = {
   status: "answered",
   question: "What percentage of Engineering employees are in India?",
-  answer: "Employees (country is India) as % of Employees: 18.86%; Employees (country is India): 656; Employees: 3,478.",
-  interpretation: "Employees (country is India); Employees; Employees (country is India) as % of Employees · where department is Engineering",
+  answer: "Share in India: 18.86%; India employees: 656; Engineering employees: 3,478.",
+  interpretation: "Counts Engineering employees and the share of them based in India.",
   missing: [],
-  query: { kind: "aggregate" },
+  sql: "SELECT 1",
+  currency: "USD",
   result: {
     kind: "scalar",
     columns: [
-      { key: "india", label: "Employees (country is India)", type: "count", currency: null, currency_key: null },
-      { key: "all", label: "Employees", type: "count", currency: null, currency_key: null },
-      { key: "share", label: "Employees (country is India) as % of Employees", type: "percent", currency: null, currency_key: null },
+      { key: "india_employees", label: "India employees", type: "count", currency: null, currency_key: null },
+      { key: "engineering_employees", label: "Engineering employees", type: "count", currency: null, currency_key: null },
+      { key: "share_in_india", label: "Share in india", type: "percent", currency: null, currency_key: null },
     ],
     rows: [{ values: [656, 3478, "18.86"], employee_id: null }],
-    primary: "share",
+    primary: "share_in_india",
     total_rows: 1,
   },
   analytics_view: null,
@@ -31,15 +32,16 @@ const share: AskResponse = {
 const payroll: AskResponse = {
   status: "answered",
   question: "Total payroll in Germany?",
-  answer: "Total salary: USD 97,512,340.00. Amounts are in USD at the fixed exchange rates.",
-  interpretation: "Total salary · where country is Germany · amounts in USD",
+  answer: "Total payroll: USD 97,512,340.00. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Sums the annual salaries of employees based in Germany.",
   missing: [],
-  query: { kind: "aggregate" },
+  sql: "SELECT 1",
+  currency: "USD",
   result: {
     kind: "scalar",
-    columns: [{ key: "payroll", label: "Total salary", type: "money", currency: "USD", currency_key: null }],
+    columns: [{ key: "total_payroll", label: "Total payroll", type: "money", currency: "USD", currency_key: null }],
     rows: [{ values: ["97512340.00"], employee_id: null }],
-    primary: "payroll",
+    primary: "total_payroll",
     total_rows: 1,
   },
   analytics_view: { group_by: null, metric: "payroll", country: "Germany", department: null, job_title: null },
@@ -48,17 +50,18 @@ const payroll: AskResponse = {
 const topEarners: AskResponse = {
   status: "answered",
   question: "Who are the highest-paid employees in Germany?",
-  answer: "Showing the first 2 of 1,003 employees. Amounts are in USD at the fixed exchange rates.",
-  interpretation: "Employees, showing name, local salary, salary currency, salary · where country is Germany",
+  answer: "Showing the first 2 of 1,003 results. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Lists employees in Germany from the highest salary down.",
   missing: [],
-  query: { kind: "rows" },
+  sql: "SELECT 1",
+  currency: "USD",
   result: {
     kind: "table",
     columns: [
       { key: "full_name", label: "Name", type: "text", currency: null, currency_key: null },
-      { key: "local_salary", label: "Local salary", type: "money", currency: null, currency_key: "currency" },
-      { key: "currency", label: "Salary currency", type: "text", currency: null, currency_key: null },
-      { key: "salary", label: "Salary", type: "money", currency: "USD", currency_key: null },
+      { key: "salary_local", label: "Local salary", type: "money", currency: null, currency_key: "salary_currency" },
+      { key: "salary_currency", label: "Currency", type: "text", currency: null, currency_key: null },
+      { key: "salary_usd", label: "Salary", type: "money", currency: "USD", currency_key: null },
     ],
     rows: [
       { values: ["Mia Weber", "231500.00", "EUR", "250020.00"], employee_id: 42 },
@@ -73,21 +76,22 @@ const topEarners: AskResponse = {
 const byDepartment: AskResponse = {
   status: "answered",
   question: "Payroll by department",
-  answer: "2 departments. Amounts are in USD at the fixed exchange rates.",
-  interpretation: "Total salary by department · amounts in USD",
+  answer: "2 results. Amounts are in USD at the fixed exchange rates.",
+  interpretation: "Sums annual salaries for each department.",
   missing: [],
-  query: { kind: "aggregate" },
+  sql: "SELECT 1",
+  currency: "USD",
   result: {
     kind: "table",
     columns: [
       { key: "department", label: "Department", type: "text", currency: null, currency_key: null },
-      { key: "payroll", label: "Total salary", type: "money", currency: "USD", currency_key: null },
+      { key: "total_payroll", label: "Total payroll", type: "money", currency: "USD", currency_key: null },
     ],
     rows: [
       { values: ["Engineering", "397287000.00"], employee_id: null },
       { values: ["Sales", "113502000.00"], employee_id: null },
     ],
-    primary: "payroll",
+    primary: "total_payroll",
     total_rows: 2,
   },
   analytics_view: { group_by: "department", metric: "payroll", country: null, department: null, job_title: null },
@@ -163,7 +167,7 @@ describe("AskPanel", () => {
     expect(within(shareAnswer).getByText("18.86%")).toBeInTheDocument();
     expect(within(shareAnswer).getByText("656")).toBeInTheDocument();
     expect(within(shareAnswer).getByText("3,478")).toBeInTheDocument();
-    expect(within(shareAnswer).getByText(/^Read as: /)).toHaveTextContent("where department is Engineering");
+    expect(within(shareAnswer).getByText(/^Read as: /)).toHaveTextContent("share of them based in India");
     expect(within(shareAnswer).queryByRole("link", { name: /Open in Analytics/ })).not.toBeInTheDocument();
 
     expect(within(payrollAnswer).getByText("97,512,340.00")).toBeInTheDocument();
@@ -185,7 +189,7 @@ describe("AskPanel", () => {
     expect(within(table).getByRole("link", { name: "Mia Weber" })).toHaveAttribute("href", "/employees/42");
     expect(within(table).getByText("EUR 231,500.00")).toBeInTheDocument();
     expect(within(table).getByText("250,020.00")).toBeInTheDocument();
-    expect(screen.getByText("Showing the first 2 of 1,003 employees. Amounts are in USD at the fixed exchange rates.")).toBeInTheDocument();
+    expect(screen.getByText("Showing the first 2 of 1,003 results. Amounts are in USD at the fixed exchange rates.")).toBeInTheDocument();
   });
 
   it("renders grouped results with bars and a link to the matching Analytics view", () => {
@@ -203,7 +207,8 @@ describe("AskPanel", () => {
       answer: "This needs data Compensation Hub does not store: gender.",
       interpretation: null,
       missing: ["gender"],
-      query: null,
+      sql: null,
+      currency: "USD",
       result: null,
       analytics_view: null,
     };
@@ -220,7 +225,7 @@ describe("AskPanel", () => {
 
     expect(screen.getByText("Not in the data")).toBeInTheDocument();
     expect(screen.getByText("This needs data Compensation Hub does not store: gender.")).toBeInTheDocument();
-    expect(screen.getByText("Can't answer this reliably")).toBeInTheDocument();
+    expect(screen.getByText("Can't answer this")).toBeInTheDocument();
     expect(screen.getByText("Salary recommendations are not made.")).toBeInTheDocument();
     const alerts = screen.getAllByRole("alert");
     expect(alerts[0]).toHaveTextContent("Ask Compensation is unavailable");

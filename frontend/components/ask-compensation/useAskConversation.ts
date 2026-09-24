@@ -7,14 +7,15 @@ import { MAX_HISTORY_TURNS, MIN_QUESTION_LENGTH, type AskAction, type AskExchang
 
 /**
  * The context a follow-up question is interpreted in: the latest answered questions with the
- * validated queries they ran. Result figures are never sent back.
+ * validated SQL and currency they used. Result figures are never sent back.
  */
 export function conversationHistory(exchanges: AskExchange[]): AskTurn[] {
   const turns: AskTurn[] = [];
   for (const exchange of exchanges) {
     const { outcome } = exchange;
-    if (outcome.status === "answered" && outcome.response.query) {
-      turns.push({ question: exchange.question, query: outcome.response.query });
+    if (outcome.status === "answered" && outcome.response.sql) {
+      const { sql, currency } = outcome.response;
+      turns.push({ question: exchange.question, sql, currency });
     }
   }
   return turns.slice(-MAX_HISTORY_TURNS);

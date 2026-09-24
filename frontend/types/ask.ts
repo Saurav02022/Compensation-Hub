@@ -1,14 +1,14 @@
 import type { GroupBy } from "./analytics";
 
 /**
- * The validated read-only query the backend ran. The frontend never interprets it; it is only
- * sent back with follow-up questions so the planner can refine the previous question.
+ * An earlier answered question with the validated SQL and currency it used. The frontend never
+ * interprets the SQL; it is only sent back so the planner can resolve follow-up questions, and the
+ * backend validates it again. Result figures are never part of a turn.
  */
-export type AskQuery = Record<string, unknown>;
-
 export interface AskTurn {
   question: string;
-  query: AskQuery;
+  sql: string;
+  currency: string;
 }
 
 export type ResultColumnType = "text" | "count" | "money" | "percent" | "number";
@@ -54,7 +54,8 @@ export interface AskResponse {
   answer: string;
   interpretation: string | null;
   missing: string[];
-  query: AskQuery | null;
+  sql: string | null;
+  currency: string;
   result: AskResult | null;
   analytics_view: AskAnalyticsView | null;
 }

@@ -5,14 +5,15 @@ import type { AskResponse, AskTurn } from "@/types/ask";
 import { MAX_HISTORY_TURNS, type AskExchange, type AskOutcome } from "./types";
 import { conversationHistory, useAskConversation } from "./useAskConversation";
 
-function answered(question: string, query: Record<string, unknown> | null): AskOutcome {
+function answered(question: string, sql: string | null, currency = "USD"): AskOutcome {
   const response: AskResponse = {
-    status: query ? "answered" : "missing_data",
+    status: sql ? "answered" : "missing_data",
     question,
     answer: "",
     interpretation: null,
     missing: [],
-    query,
+    sql,
+    currency,
     result: null,
     analytics_view: null,
   };
@@ -25,7 +26,7 @@ describe("conversationHistory", () => {
       ...Array.from({ length: MAX_HISTORY_TURNS + 1 }, (_, index) => ({
         id: index,
         question: `Question ${index}`,
-        outcome: answered(`Question ${index}`, { kind: "aggregate", turn: index }),
+        outcome: answered(`Question ${index}`, `SELECT ${index} AS turn`),
       })),
       { id: 90, question: "Male engineers?", outcome: answered("Male engineers?", null) },
       { id: 91, question: "Down?", outcome: { status: "unavailable", message: "Down." } },
@@ -35,7 +36,7 @@ describe("conversationHistory", () => {
 
     expect(history).toHaveLength(MAX_HISTORY_TURNS);
     expect(history[0].question).toBe("Question 1");
-    expect(history.at(-1)).toEqual({ question: `Question ${MAX_HISTORY_TURNS}`, query: { kind: "aggregate", turn: MAX_HISTORY_TURNS } });
+    expect(history.at(-1)).toEqual({ question: `Question ${MAX_HISTORY_TURNS}`, sql: `SELECT ${MAX_HISTORY_TURNS} AS turn`, currency: "USD" });
   });
 });
 
@@ -43,7 +44,7 @@ describe("useAskConversation", () => {
   it("sends each follow-up with the earlier validated queries", async () => {
     const action = vi.fn(async (question: string, history: AskTurn[]): Promise<AskOutcome> => {
       void history;
-      return answered(question, { kind: "aggregate", question });
+      return answered(question, `SELECT '${question}' AS q`, question.includes("INR") ? "INR" : "USD");
     });
     const { result } = renderHook(() => useAskConversation(action));
 
@@ -60,7 +61,8 @@ describe("useAskConversation", () => {
     expect(action).toHaveBeenNthCalledWith(2, "Convert that to INR.", [
       {
         question: "What is the total payroll in Germany?",
-        query: { kind: "aggregate", question: "What is the total payroll in Germany?" },
+        sql: "SELECT 'What is the total payroll in Germany?' AS q",
+        currency: "USD",
       },
     ]);
 
