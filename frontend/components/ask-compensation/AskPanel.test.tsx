@@ -90,9 +90,10 @@ const byDepartment: AskResponse = {
     rows: [
       { values: ["Engineering", "397287000.00"], employee_id: null },
       { values: ["Sales", "113502000.00"], employee_id: null },
+      { values: ["Research", null], employee_id: null },
     ],
     primary: "total_payroll",
-    total_rows: 2,
+    total_rows: 3,
   },
   analytics_view: { group_by: "department", metric: "payroll", country: null, department: null, job_title: null },
 };
@@ -197,6 +198,8 @@ describe("AskPanel", () => {
 
     expect(screen.getByRole("rowheader", { name: "Engineering" })).toBeInTheDocument();
     expect(screen.getByText("397,287,000.00")).toBeInTheDocument();
+    // A missing figure is shown as a dash, never as zero.
+    expect(within(screen.getByRole("row", { name: /Research/ })).getByText("—")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Open in Analytics/ })).toHaveAttribute("href", "/analytics?by=department");
   });
 

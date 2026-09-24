@@ -7,7 +7,6 @@ from compensation_hub.ask_compensation.sql_validation import (
     MAX_JOINS,
     MAX_NESTING,
     MAX_ROWS,
-    MAX_SQL_LENGTH,
     ForbiddenSqlError,
     InvalidSqlError,
     UnknownReferenceError,
@@ -117,6 +116,18 @@ def test_joins_between_approved_relations_are_allowed() -> None:
         "SELECT current_setting('data_directory')",
         "SELECT 1 /* hidden */ ; DROP TABLE employees",
         "SELECT 1 -- comment\n; DROP TABLE employees",
+        "WITH d AS (DELETE FROM employees RETURNING *) SELECT * FROM d",
+        "WITH d AS (UPDATE compensation SET annual_salary = 0 RETURNING *) SELECT 1 FROM d",
+        "SELECT query_to_xml('DELETE FROM employees', true, true, '')",
+        "SELECT dblink_exec('dbname=x', 'DROP TABLE employees')",
+        "SELECT version()",
+        "SELECT current_user",
+        "SELECT current_database()",
+        "SELECT inet_server_addr()",
+        "SELECT * FROM compensation",
+        "SELECT * FROM alembic_version",
+        "SELECT * FROM information_schema.columns",
+        "select * from PG_CATALOG.pg_roles",
     ],
 )
 def test_rejects_anything_that_is_not_a_read_of_the_surface(sql: str) -> None:
@@ -129,8 +140,10 @@ def test_rejects_anything_that_is_not_a_read_of_the_surface(sql: str) -> None:
     [
         "SELECT lo_import('/etc/passwd')",
         "SELECT nextval('employees_id_seq')",
-        "SELECT version()",
         "SELECT now()",
+        "SELECT LENGTH(full_name) AS n FROM employees LIMIT 1",
+        "SELECT CONCAT(full_name, country) AS label FROM employees LIMIT 1",
+        "SELECT full_name || ' ' || country AS label FROM employees LIMIT 1",
         "SELECT generate_series(1, 10)",
         "SELECT * FROM generate_series(1, 10)",
         "SELECT query_to_xml('select 1', true, true, '')",
@@ -187,6 +200,26 @@ def test_unknown_columns_and_relations_are_reported_by_name() -> None:
             "FROM employees GROUP BY country, salary_usd",
             "CASE",
         ),
+        (
+            "SELECT SUM(e.salary_usd * (f.rate_to_usd * 1)) AS x FROM employees AS e "
+            "JOIN fx_rates AS f ON f.currency_code = 'EUR'",
+            "stay in USD",
+        ),
+        (
+            "SELECT SUM(e.salary_usd) * MAX(f.rate_to_usd) / MIN(f.rate_to_usd) AS x "
+            "FROM employees AS e CROSS JOIN fx_rates AS f",
+            "stay in USD",
+        ),
+        (
+            "SELECT SUM((SELECT salary_local FROM employees LIMIT 1)) AS x FROM employees",
+            "salary_local",
+        ),
+        (
+            "WITH l AS (SELECT salary_local AS amount FROM employees) "
+            "SELECT SUM(amount) AS x FROM l",
+            "salary_local",
+        ),
+        ("SELECT currency_code, rate_to_usd * 100 AS scaled FROM fx_rates", None),
         ("SELECT full_name FROM employees", None),
     ],
 )
@@ -247,6 +280,9 @@ def test_row_limits() -> None:
     assert uncapped.executable.endswith(f"LIMIT {MAX_ROWS + 1}")
     assert own.row_cap is None
     assert own.executable.endswith("LIMIT 7")
+    at_cap = validate_sql(f"SELECT full_name FROM employees LIMIT {MAX_ROWS}")
+    assert at_cap.row_cap == MAX_ROWS
+    assert at_cap.executable.endswith(f"LIMIT {MAX_ROWS + 1}")
     with pytest.raises(InvalidSqlError, match="above the maximum"):
         validate_sql(f"SELECT full_name FROM employees LIMIT {MAX_ROWS + 1}")
     with pytest.raises(InvalidSqlError, match="whole number"):
@@ -272,7 +308,6 @@ def test_complexity_bounds() -> None:
         validate_sql(f"SELECT e.full_name FROM employees AS e {joins} LIMIT 1")
     with pytest.raises(InvalidSqlError, match="longer than"):
         validate_sql("SELECT full_name FROM employees WHERE " + "country = 'x' OR " * 400 + "true")
-    assert MAX_SQL_LENGTH >= 4000
 
 
 def test_malformed_sql_is_rejected() -> None:

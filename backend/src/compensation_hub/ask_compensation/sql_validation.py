@@ -12,7 +12,7 @@ question needs data that is not stored, and ``InvalidSqlError`` for everything e
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import cast
 
 import sqlglot
 from sqlglot import exp
@@ -21,12 +21,14 @@ from sqlglot.optimizer.qualify import qualify
 
 from compensation_hub.ask_compensation.sql_units import (
     LITERAL,
+    InferredUnit,
     UnitError,
     UnitInference,
     check_local_money,
     check_projections,
 )
 from compensation_hub.ask_compensation.surface import RELATIONS, Unit, schema_mapping
+from compensation_hub.db.models import Compensation, Employee, FxRate
 
 DIALECT = "postgres"
 
@@ -89,7 +91,6 @@ ALLOWED_NODES: tuple[type[exp.Expr], ...] = (
     exp.Mul,
     exp.Div,
     exp.Neg,
-    exp.DPipe,
     exp.Case,
     exp.If,
     exp.Cast,
@@ -127,9 +128,6 @@ ALLOWED_FUNCTIONS: tuple[type[exp.Expr], ...] = (
     exp.Least,
     exp.Lower,
     exp.Upper,
-    exp.Trim,
-    exp.Length,
-    exp.Concat,
     exp.Rank,
     exp.DenseRank,
     exp.RowNumber,
@@ -187,6 +185,29 @@ FORBIDDEN_NODES: tuple[type[exp.Expr], ...] = tuple(
     if isinstance(node, type)
 )
 SYSTEM_PREFIXES = ("pg_", "information_schema")
+# Functions that read server state or run SQL of their own. They are refused outright rather
+# than offered a correction, like any other attempt to leave the surface.
+DANGEROUS_FUNCTION_PREFIXES = (
+    "pg_",
+    "current_",
+    "session_",
+    "lo_",
+    "dblink",
+    "query_to_xml",
+    "table_to_xml",
+    "cursor_to_xml",
+    "database_to_xml",
+    "schema_to_xml",
+    "set_config",
+    "txid_",
+    "version",
+    "inet_",
+)
+# The database tables behind the surface. Naming one directly is a request to read outside the
+# surface, not a question about data the product does not store.
+PHYSICAL_RELATIONS = frozenset(
+    {model.__tablename__ for model in (Employee, Compensation, FxRate)} | {"alembic_version"}
+)
 
 
 class InvalidSqlError(Exception):
@@ -226,10 +247,11 @@ class ValidatedSql:
     tree: exp.Query = field(compare=False, repr=False)
 
 
-def _function_name(node: exp.Expr) -> str:
+def _function_name(node: exp.Func) -> str:
+    """The SQL name of a function; sqlglot maps many PostgreSQL functions to typed nodes."""
     if isinstance(node, exp.Anonymous):
         return str(node.name).lower()
-    return type(node).__name__.lower()
+    return node.sql_name().lower()
 
 
 def _check_nodes(tree: exp.Expr) -> None:
@@ -243,7 +265,7 @@ def _check_nodes(tree: exp.Expr) -> None:
         if not isinstance(node, ALLOWED_NODES):
             if isinstance(node, exp.Func):
                 name = _function_name(node)
-                if name.startswith("pg_") or name in {"set_config", "current_setting", "dblink"}:
+                if name.startswith(DANGEROUS_FUNCTION_PREFIXES):
                     raise ForbiddenSqlError(f"The function {name} is not allowed.")
                 raise InvalidSqlError(f"The function {name} is not available.")
             raise InvalidSqlError(f"The SQL construct {type(node).__name__} is not supported.")
@@ -274,7 +296,9 @@ def _check_relations(tree: exp.Expr) -> None:
             raise ForbiddenSqlError("Schema-qualified names are not allowed.")
         if not isinstance(table.this, exp.Identifier):
             raise InvalidSqlError("Table functions are not supported.")
-        if lowered.startswith(SYSTEM_PREFIXES):
+        if lowered.startswith(SYSTEM_PREFIXES) or (
+            lowered in PHYSICAL_RELATIONS and lowered not in RELATIONS and lowered not in ctes
+        ):
             raise ForbiddenSqlError(f"The relation {name} is not available to Ask Compensation.")
         # A quoted name keeps its case in PostgreSQL, so "Employees" is not employees.
         known = lowered in RELATIONS or lowered in ctes
@@ -458,15 +482,15 @@ def _render(node: exp.Expr) -> str:
     return node.sql(dialect=DIALECT, comments=False)
 
 
-def _output_unit(unit: Any, name: str, percent_columns: set[str]) -> Unit:
+def _output_unit(unit: InferredUnit, name: str, percent_columns: set[str]) -> Unit:
     if name in percent_columns:
         if unit in ("money", "money_local", "rate", "text", "id"):
             raise InvalidSqlError(f"The column {name} is not a percentage.")
         return "percent"
     if unit == LITERAL:
         return "number"
-    resolved: Unit = unit
-    return resolved
+    # Every remaining inferred unit is a surface unit; LITERAL was mapped above.
+    return cast(Unit, unit)
 
 
 def validate_sql(sql: str, percent_columns: frozenset[str] = frozenset()) -> ValidatedSql:
@@ -519,6 +543,11 @@ def validate_sql(sql: str, percent_columns: frozenset[str] = frozenset()) -> Val
 
     rewritten = _rewrite(qualified)
     own_limit = _literal_int(rewritten.args.get("limit"), "LIMIT")
+    if own_limit is not None and own_limit >= MAX_ROWS:
+        # A LIMIT at the cap returns the same rows as the application's cap, but hides whether
+        # more rows matched; dropping it lets the result report the total.
+        rewritten.set("limit", None)
+        own_limit = None
     row_cap = None if own_limit is not None else MAX_ROWS
     parameterized, parameters = _parameterize(rewritten)
     capped = parameterized if row_cap is None else parameterized.limit(MAX_ROWS + 1, copy=True)

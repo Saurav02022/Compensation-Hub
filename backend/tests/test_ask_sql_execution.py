@@ -330,12 +330,23 @@ def test_empty_results_and_nulls(session: Session) -> None:
 
 
 def test_literal_values_with_wildcards_and_quotes_are_bound(session: Session) -> None:
-    result = run(
-        session,
+    sql = (
         "SELECT COUNT(*) AS n FROM employees WHERE full_name = '100%' "
-        "OR full_name LIKE '%:name%' OR full_name = 'x''; DROP TABLE employees; --'",
+        "OR full_name LIKE '%:name%' OR full_name = 'x''; DROP TABLE employees; --' "
+        "OR full_name = 'a_b' OR full_name = 'back\\slash' OR full_name = 'x; SELECT 1'"
     )
+    validated = validate_sql(sql)
+    result = run(session, sql)
 
+    assert set(validated.parameters.values()) == {
+        "100%",
+        "%:name%",
+        "x'; DROP TABLE employees; --",
+        "a_b",
+        "back\\slash",
+        "x; SELECT 1",
+    }
+    assert "DROP" not in validated.executable and "slash" not in validated.executable
     assert scalar(result) == 0
     assert session.scalar(text("SELECT COUNT(*) FROM employees")) == len(EMPLOYEES)
 
@@ -365,9 +376,13 @@ def test_results_are_capped_and_report_the_total(session: Session) -> None:
     session.commit()
 
     result = run(session, "SELECT full_name FROM employees ORDER BY full_name")
+    # A LIMIT at the cap is the model's way of asking for "as many as can be shown".
+    limited = run(session, f"SELECT full_name FROM employees ORDER BY full_name LIMIT {MAX_ROWS}")
 
     assert len(result.rows) == MAX_ROWS
     assert result.total_rows == len(EMPLOYEES) + MAX_ROWS
+    assert limited.rows == result.rows
+    assert limited.total_rows == len(EMPLOYEES) + MAX_ROWS
 
 
 def test_the_transaction_refuses_writes(session: Session) -> None:

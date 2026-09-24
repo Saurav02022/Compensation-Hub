@@ -2,10 +2,12 @@ import json
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal
 
+import psycopg
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
 from compensation_hub.ask_compensation.provider import (
@@ -17,6 +19,11 @@ from compensation_hub.ask_compensation.provider import (
     build_query_planner,
 )
 from compensation_hub.ask_compensation.schemas import MAX_HISTORY_TURNS
+from compensation_hub.ask_compensation.service import (
+    OUT_OF_SCOPE_ANSWER,
+    READ_ONLY_ANSWER,
+    UNINTERPRETABLE_ANSWER,
+)
 from compensation_hub.core.config import Settings
 from compensation_hub.db.models import Compensation
 from compensation_hub.seed.dataset import build_seed_dataset
@@ -262,7 +269,8 @@ def test_a_second_rejection_is_reported(seeded_client: TestClient) -> None:
     body = ask(seeded_client, question)
 
     assert body["status"] == "unsupported"
-    assert "md5 is not available" in str(body["answer"])
+    assert body["answer"] == UNINTERPRETABLE_ANSWER
+    assert "md5" not in str(body["answer"])
     assert body["result"] is None
 
 
@@ -328,7 +336,7 @@ def test_out_of_scope_request_is_declined(seeded_client: TestClient) -> None:
         FakePlanner(
             {
                 question: json.dumps(
-                    {"status": "unsupported", "reason": "Ask Compensation does not change data."}
+                    {"status": "unsupported", "reason": "Only employees and fx_rates are queried."}
                 )
             }
         ),
@@ -337,7 +345,9 @@ def test_out_of_scope_request_is_declined(seeded_client: TestClient) -> None:
     body = ask(seeded_client, question)
 
     assert body["status"] == "unsupported"
-    assert body["answer"] == "Ask Compensation does not change data."
+    # The planner's reason is logged; the answer is fixed product wording.
+    assert body["answer"] == OUT_OF_SCOPE_ANSWER
+    assert "fx_rates" not in str(body["answer"])
     assert body["sql"] is None and body["result"] is None
 
 
@@ -352,6 +362,11 @@ def test_out_of_scope_request_is_declined(seeded_client: TestClient) -> None:
         "COPY employees TO PROGRAM 'cat /etc/passwd'",
         "SELECT pg_sleep(30)",
         "SELECT * FROM public.compensation",
+        "SELECT * FROM compensation",
+        "SELECT * FROM information_schema.columns",
+        "WITH d AS (DELETE FROM compensation RETURNING *) SELECT COUNT(*) FROM d",
+        "SELECT query_to_xml('DELETE FROM compensation', true, true, '')",
+        "SELECT current_setting('data_directory')",
     ],
 )
 def test_prompt_injected_sql_is_never_run(
@@ -451,6 +466,46 @@ def test_slow_queries_are_stopped(
     assert "takes too long" in str(body["answer"])
     correction = planner.calls[1][3]
     assert correction is not None and "window functions" in correction.problem
+
+
+def _database_error(orig: Exception) -> ProgrammingError:
+    return ProgrammingError("SELECT 1", {}, orig)
+
+
+def test_infrastructure_errors_are_not_treated_as_planner_mistakes(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = "How many employees are there?"
+    planner = FakePlanner({question: query("SELECT COUNT(*) AS n FROM employees")})
+    install(seeded_client, planner)
+
+    def refuse(*args: object) -> None:
+        raise _database_error(psycopg.errors.InsufficientPrivilege("permission denied"))
+
+    monkeypatch.setattr("compensation_hub.ask_compensation.service.execute_sql", refuse)
+
+    with pytest.raises(ProgrammingError):
+        seeded_client.post("/analytics/ask", json={"question": question})
+    assert len(planner.calls) == 1
+
+
+def test_a_write_refused_by_postgresql_is_reported_as_read_only(
+    seeded_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    question = "How many employees are there?"
+    planner = FakePlanner({question: query("SELECT COUNT(*) AS n FROM employees")})
+    install(seeded_client, planner)
+
+    def refuse(*args: object) -> None:
+        raise _database_error(psycopg.errors.ReadOnlySqlTransaction("read-only transaction"))
+
+    monkeypatch.setattr("compensation_hub.ask_compensation.service.execute_sql", refuse)
+
+    body = ask(seeded_client, question)
+
+    assert body["status"] == "unsupported"
+    assert body["answer"] == READ_ONLY_ANSWER
+    assert len(planner.calls) == 1
 
 
 def test_provider_outage_reports_unavailable_without_breaking_other_features(

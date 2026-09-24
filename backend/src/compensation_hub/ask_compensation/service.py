@@ -59,6 +59,13 @@ READ_ONLY_ANSWER = (
     "Ask Compensation only answers read-only questions about the employee and compensation "
     "data, so this request cannot be run."
 )
+# The planner's own reason is logged, not shown: wording stays consistent and never describes
+# the query machinery.
+OUT_OF_SCOPE_ANSWER = (
+    "Ask Compensation answers factual, read-only questions about employees and their current "
+    "compensation. It does not change data, recommend pay, judge performance, or answer "
+    "unrelated questions."
+)
 TIMEOUT_ANSWER = "This question needs a query that takes too long to run. Try narrowing it."
 # A correlated subquery re-reads the surface once per employee; on 10,000 employees that runs
 # for tens of seconds, while the same comparison with a window function takes milliseconds.
@@ -70,6 +77,10 @@ SLOW_QUERY_PROBLEM = (
 # PostgreSQL error classes a corrected query can fix: syntax or access rule violations,
 # data exceptions, and cardinality violations such as a scalar subquery returning many rows.
 CORRECTABLE_SQLSTATE_CLASSES = ("42", "22", "21")
+# Within those classes, a missing privilege or table means the surface itself is broken, which
+# no rewrite of the query can fix, so these are raised as server errors instead.
+INFRASTRUCTURE_SQLSTATES = frozenset({"42501", "42P01"})
+READ_ONLY_VIOLATION = "25006"
 QUERY_CANCELED = "57014"
 CONTEXT_TIMEOUT = "5s"
 
@@ -204,7 +215,8 @@ def ask(
             continue
 
         if response.status == "unsupported":
-            return AskOutcome(status="unsupported", answer=response.reason)
+            logger.info("Planner declined the question: %s", response.reason)
+            return AskOutcome(status="unsupported", answer=OUT_OF_SCOPE_ANSWER)
         if response.status == "missing_data":
             return _missing(response.missing)
 
@@ -224,9 +236,7 @@ def ask(
         except InvalidSqlError as error:
             logger.info("Rejected planned SQL: %s", error.message)
             if final:
-                return AskOutcome(
-                    status="unsupported", answer=f"{UNINTERPRETABLE_ANSWER} ({error.message})"
-                )
+                return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)
             correction = Correction(raw, error.message)
             continue
 
@@ -239,15 +249,18 @@ def ask(
                     return AskOutcome(status="unsupported", answer=TIMEOUT_ANSWER)
                 correction = Correction(raw, SLOW_QUERY_PROBLEM)
                 continue
-            if not sqlstate.startswith(CORRECTABLE_SQLSTATE_CLASSES):
+            if sqlstate == READ_ONLY_VIOLATION:
+                # Validation should make this unreachable; PostgreSQL refusing is the backstop.
+                logger.error("PostgreSQL refused a write from validated SQL")
+                return AskOutcome(status="unsupported", answer=READ_ONLY_ANSWER)
+            correctable = sqlstate.startswith(CORRECTABLE_SQLSTATE_CLASSES)
+            if not correctable or sqlstate in INFRASTRUCTURE_SQLSTATES:
                 raise
             diagnostic = getattr(error.orig, "diag", None)
             message = getattr(diagnostic, "message_primary", None) or "The query failed."
             logger.info("Planned SQL failed in PostgreSQL: %s", message)
             if final:
-                return AskOutcome(
-                    status="unsupported", answer=f"{UNINTERPRETABLE_ANSWER} ({message})"
-                )
+                return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)
             correction = Correction(raw, f"PostgreSQL rejected the query: {message}")
 
     return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)

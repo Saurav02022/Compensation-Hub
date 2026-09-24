@@ -52,7 +52,11 @@ SAME_UNIT_FUNCTIONS = (
     exp.LastValue,
 )
 FIRST_ARGUMENT_FUNCTIONS = (exp.Coalesce, exp.Nullif, exp.Greatest, exp.Least)
-TEXT_FUNCTIONS = (exp.Lower, exp.Upper, exp.Trim, exp.DPipe, exp.Concat)
+TEXT_FUNCTIONS = (exp.Lower, exp.Upper)
+LOCAL_MONEY_MESSAGE = (
+    "salary_local is in each employee's own currency and cannot be aggregated or used in "
+    "calculations; use salary_usd instead."
+)
 PREDICATES = (
     exp.EQ,
     exp.NEQ,
@@ -145,16 +149,16 @@ class UnitInference:
             ordered = node.expression.expressions[0]
             return self.expression(ordered.this, scope)
         if isinstance(node, exp.Window):
-            return self.expression(node.this, scope)
+            return self._no_local_money(self.expression(node.this, scope))
         if isinstance(node, (exp.Count, *COUNTING)):
             return "count"
         if isinstance(node, (exp.PercentileCont, exp.PercentileDisc)):
             return "number"
         if isinstance(node, exp.Avg):
-            unit = self.expression(node.this, scope)
+            unit = self._no_local_money(self.expression(node.this, scope))
             return "number" if unit == "count" else unit
         if isinstance(node, SAME_UNIT_FUNCTIONS):
-            return self.expression(node.this, scope)
+            return self._no_local_money(self.expression(node.this, scope))
         if isinstance(node, FIRST_ARGUMENT_FUNCTIONS):
             units = [self.expression(arg, scope) for arg in [node.this, *node.expressions]]
             return next((unit for unit in units if unit != LITERAL), LITERAL)
@@ -172,9 +176,15 @@ class UnitInference:
             return self._arithmetic(node, scope)
         if isinstance(node, (*TEXT_FUNCTIONS, *PREDICATES)):
             return "text"
-        if isinstance(node, exp.Length):
-            return "number"
         return "number"
+
+    @staticmethod
+    def _no_local_money(unit: InferredUnit) -> InferredUnit:
+        # Column references are checked by check_local_money; this also covers local amounts
+        # that reach an aggregate or calculation through a scalar subquery or a CTE column.
+        if unit == "money_local":
+            raise UnitError(LOCAL_MONEY_MESSAGE)
+        return unit
 
     def _case(self, node: exp.Case, scope: Scope) -> InferredUnit:
         branches = [branch.args["true"] for branch in node.args.get("ifs", [])]
@@ -192,13 +202,17 @@ class UnitInference:
         return "number"
 
     def _arithmetic(self, node: exp.Binary, scope: Scope) -> InferredUnit:
-        left = self.expression(node.this, scope)
-        right = self.expression(node.expression, scope)
-        if "rate" in (left, right) and {left, right} & {"money", "money_local"}:
-            raise UnitError(
-                "Amounts must stay in USD in SQL; the answer currency is applied afterwards "
-                "with the seeded rates."
-            )
+        left = self._no_local_money(self.expression(node.this, scope))
+        right = self._no_local_money(self.expression(node.expression, scope))
+        if "rate" in (left, right):
+            if "money" in (left, right):
+                raise UnitError(
+                    "Amounts must stay in USD in SQL; the answer currency is applied afterwards "
+                    "with the seeded rates."
+                )
+            # Anything computed from a rate is still a rate, so a scaled or cross rate cannot
+            # later be used to convert an amount.
+            return "rate"
         if isinstance(node, (exp.Add, exp.Sub)):
             return _additive(left, right)
         if isinstance(node, exp.Mul):
@@ -249,10 +263,7 @@ def check_local_money(inference: UnitInference) -> None:
             parent = column.parent
             while parent is not None and not isinstance(parent, (exp.Select, exp.SetOperation)):
                 if isinstance(parent, LOCAL_MONEY_BARRIERS):
-                    raise UnitError(
-                        "salary_local is in each employee's own currency and cannot be "
-                        "aggregated or used in calculations; use salary_usd instead."
-                    )
+                    raise UnitError(LOCAL_MONEY_MESSAGE)
                 parent = parent.parent
 
 
