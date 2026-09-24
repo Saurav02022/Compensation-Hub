@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 7 — Final Product Review and Delivery (demo recording pending)
+**Current phase:** Phase 10 — Data-Grounded Ask Compensation (the Phase 7 demo recording is still pending)
 
 ## Status
 
@@ -233,3 +233,29 @@ A second design pass rebuilt the interface around patterns observed in current B
 - [x] Redeploy the rebuilt frontend to Cloud Run and verify it in production.
 
 **Exit condition:** complete — the product runs in a sticky sidebar shell with Ask Compensation docked beside every page and on Ctrl/⌘ K, the directory and analytics stay server-backed and URL-addressable with bounded requests, analytics shows every measure beside its bars in one drill-down workspace, and lint, type, test, and build checks pass.
+
+---
+
+## Phase 10 — Data-Grounded Ask Compensation
+
+Ask Compensation rejected questions the stored data could answer, first because it mapped every question onto a fixed set of analytics metrics and then because a custom query representation could not express many relational questions. This phase answers any factual read-only question the stored data can answer through controlled, validated SQL, and names the missing data otherwise.
+
+- [x] Review the Ask Compensation implementation and the stored data model.
+- [x] Research SQL parsers, PostgreSQL read-only semantics, and structured output, and compare architectural options.
+- [x] Define the approved data surface that decides answerability.
+- [x] Parse and validate candidate SQL against allowlists, bounds, and the surface.
+- [x] Enforce money rules by tracing result columns to the surface.
+- [x] Rewrite validated SQL deterministically and run it in a read-only transaction with a timeout.
+- [x] Give the planner one correction attempt for rejected or failing SQL.
+- [x] Report missing data and unsupported requests explicitly.
+- [x] Carry follow-up context as earlier validated SQL, never results, and reset it for new questions.
+- [x] Render any result generically in the Ask Compensation panel.
+- [x] Remove the custom query representation.
+- [x] Test the validator on parsed SQL, execution against PostgreSQL, the API with a mocked planner, and the panel.
+- [x] Update the live-model evaluation with varied, relational, follow-up, missing-data, and adversarial questions.
+- [x] Re-evaluate the Gemini thinking level on the SQL evaluation.
+- [x] Verify end to end against the seeded database and review query performance.
+- [x] Record the decisions and update the documentation.
+- [ ] Redeploy to Cloud Run after review.
+
+**Exit condition:** questions answerable from the stored data are answered from it through validated read-only SQL, including follow-ups; questions needing absent data name what is missing; writes and reads outside the surface cannot run; lint, type, test, and build checks pass.

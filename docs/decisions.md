@@ -150,14 +150,14 @@ The API is intentionally designed around supported product workflows rather than
 
 ## D009 — Use AI for language understanding, not authoritative calculation
 
-Ask Compensation uses an LLM to interpret a natural-language question and map it to a constrained, structured analytics request.
+Ask Compensation uses an LLM to interpret a natural-language question and write a candidate read-only SQL query, which the application parses and validates before PostgreSQL runs it (see D019).
 
-Application code validates that request and PostgreSQL performs the actual calculation.
+Application code decides whether that query may run, and PostgreSQL performs the actual calculation.
 
 The LLM does not:
 
 - receive database credentials,
-- generate or execute arbitrary SQL,
+- execute SQL itself or have its SQL run without validation,
 - update employee or compensation data,
 - calculate authoritative compensation totals,
 - make salary recommendations.
@@ -170,7 +170,7 @@ Keeping interpretation probabilistic and calculation deterministic gives the AI 
 
 **Trade-off**
 
-Ask Compensation can answer only questions supported by the product's analytics model.
+Ask Compensation can answer only questions that a validated read-only query over the stored data can answer.
 
 ---
 
@@ -208,6 +208,8 @@ The seeded dataset is designed to exercise product behavior and should not be tr
 Ask Compensation calls the Gemini API through the official `google-genai` Python SDK, behind the backend's small planner interface.
 
 The model is configured through `GEMINI_MODEL` (default `gemini-3.8-flash`) and the key through `GEMINI_API_KEY`. When no key is configured the feature reports itself unavailable.
+
+Planning uses the `low` thinking level, configurable through `GEMINI_THINKING_LEVEL`. On the live SQL evaluation, `low` passed every case on four clean runs of the 35-case set (105-117 seconds per run) and on two runs of the extended 44-case set, while `medium` passed 34 of 35 in 152 seconds, so the extra latency bought no reliability.
 
 **Why**
 
@@ -317,3 +319,51 @@ Removing that metadata fetch keeps directory navigation bounded to the list and 
 **Trade-off**
 
 Employee detail browser tabs show the generic Compensation Hub title instead of the employee's name.
+
+---
+
+## D019 — Answer Ask Compensation questions with controlled, read-only SQL over an approved data surface
+
+Ask Compensation answers a question whenever the data Compensation Hub stores can answer it. The model writes candidate PostgreSQL SELECT statements, and the application decides whether they may run.
+
+The model queries two logical relations, not the database's tables: `employees` (employee identifier, code, name, country, department, job title, salary currency, local salary, and salary normalized to USD at the seeded rates) and `fx_rates` (currency and rate to USD). The application defines them as CTEs over the real tables in front of every executed query. What these relations hold is everything Ask Compensation can know; a question that needs anything else, such as gender, tenure, a reporting line, salary history, or bonuses, is answered with the data that is missing.
+
+Model output is never executed as written. It is parsed into a syntax tree with sqlglot and checked against allowlists: exactly one SELECT statement; only allowlisted syntax nodes, relations, columns, functions, and cast types; no schema-qualified or system relations; bounded length, node count, nesting, CTEs, joins, set operations, and limits. Columns are traced through CTEs and subqueries to enforce money rules: local salaries in different currencies are never aggregated or used in arithmetic, amounts are never multiplied by amounts or added to headcounts, and currency conversion is left to the application. Medians are rewritten to an exact NUMERIC form, every division is made exact and returns NULL for a zero divisor, string literals become bound parameters, and the executed SQL is rendered from the validated tree. PostgreSQL then runs it in a `READ ONLY` transaction with a statement timeout and returns at most 100 rows, with the total count when there are more. Amounts come back in USD and are converted to the answer currency with the seeded rates in Decimal.
+
+When the application rejects a response or PostgreSQL rejects the SQL, the model gets one attempt to correct it with the reason. Requests to write, to read outside the surface, or to call session or system functions are refused without a correction attempt.
+
+**Why**
+
+The product rule is that a question the stored data can answer should be answered from that data, and a question it cannot answer should name what is missing. Both a fixed metric plan and a custom query language built for this product failed that rule: they rejected answerable questions — conditions combined with OR, comparisons with a group's own average, the top earners in each country — because the application's own query language could not express them. SQL already expresses these relational questions; the work that belongs to the application is deciding which SQL may run.
+
+The alternatives were weighed against that rule:
+
+- A fixed intent catalogue only answers anticipated questions and grows with every new phrasing.
+- A custom query representation becomes an incomplete re-implementation of SQL that is the bottleneck for answerable questions.
+- RAG or a vector store retrieves unstructured text; the source of truth is relational data that needs exact filtering and aggregation (D010).
+- Unrestricted text-to-SQL would run whatever the model writes against the whole database.
+- An orchestration framework would add a dependency without addressing validation, execution, or money semantics.
+
+sqlglot was chosen as the parser because it produces a traversable PostgreSQL syntax tree, qualifies columns against a schema, and renders validated trees back to SQL, with no runtime dependencies and an MIT licence. pglast wraps PostgreSQL's own parser but is licensed GPL-3.0-or-later; sqlparse tokenizes without building a validated tree. PostgreSQL remains the final parser of the rendered SQL.
+
+A dedicated read-only database role was considered. Creating one needs CREATEROLE during migrations, is a cluster-wide object shared by every database on the server, and differs between the local, CI, and Supabase environments; the read-only transaction, the statement timeout, the relation allowlist, and the surface CTEs provide the database-side boundary instead.
+
+**Trade-off**
+
+Answerability is bounded by the stored data, by read-only SELECT queries over the two relations, by the allowlisted functions and constructs, and by the size and time limits. Medians are exact, but other percentiles are computed by PostgreSQL in double precision before rounding. A comparison written as a correlated subquery re-reads the surface for every employee and can exceed the timeout; the planner is steered to window functions and gets one correction. Answer quality depends on the model's reading of the question; the application guarantees that whatever runs is valid, read-only, and exact, and every answer carries a plain-language reading of its query so the interpretation can be checked. Ask Compensation runs its own queries rather than calling the Analytics endpoints; both read the same joins and salary normalization, and tests compare them.
+
+---
+
+## D020 — Carry follow-up context as earlier SQL, not results
+
+Follow-up questions are interpreted with up to four earlier answered questions and the validated SQL and answer currency they used. The client holds the conversation and sends that history with each question; the backend validates each earlier SQL statement again and passes the turns to the model. History is never executed, and result rows and figures are never sent back to the model.
+
+The model decides whether a new question refers back to the earlier ones or asks something new. The currency and filters of earlier turns carry over only to questions that refer back to them; a new question is answered in USD unless it names another currency.
+
+**Why**
+
+Questions such as "Convert that to INR" or "What about Engineering only?" only make sense against the previous question. The previous SQL states exactly what was computed, is small, and contains no results, so it gives the model the context it needs without exposing figures or growing without bound. Deciding what refers back is a language judgement, which is the model's role, rather than a keyword rule.
+
+**Trade-off**
+
+Context is limited to the latest four answered questions and is lost when the conversation is cleared or the page is reloaded. Whether a question refers back is the model's reading; every answer states its currency and its reading so a misread is visible.

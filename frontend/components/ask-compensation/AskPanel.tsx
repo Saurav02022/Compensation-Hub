@@ -119,7 +119,7 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
               Ask Compensation
             </h2>
             <p id={descriptionId} className="truncate text-xs text-ink-muted">
-              Answers from the same figures as Analytics
+              Answers computed from the employee data
             </p>
           </div>
           <div className="flex items-center gap-1">
@@ -138,8 +138,9 @@ export function AskPanel({ open, docked, onClose, conversation, suggestions, inp
           {empty && (
             <div>
               <p className="text-[13px] text-ink-secondary">
-                Ask about headcount, total payroll, or average salary, for or by country, department, or job title.
-                Amounts are in USD at the fixed exchange rates.
+                Ask anything the employee and salary data can answer: counts, totals, averages, medians, rankings,
+                shares, and comparisons across countries, departments, job titles, and currencies. Follow-up questions
+                refine the previous answer. Amounts use the fixed exchange rates.
               </p>
               <p className="mt-5 text-xs font-medium text-ink-muted">Examples</p>
               <ul className="mt-1.5 divide-y divide-border rounded-surface border border-border">

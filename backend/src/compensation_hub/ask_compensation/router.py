@@ -3,12 +3,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from compensation_hub.ask_compensation.provider import QueryPlanner
+from compensation_hub.ask_compensation.provider import PlannerTurn, QueryPlanner
 from compensation_hub.ask_compensation.schemas import (
+    AnalyticsViewRead,
     AskRequest,
     AskResponse,
-    AskResult,
-    AskResultRow,
+    AskResultRead,
+    ResultColumnRead,
+    ResultRowRead,
 )
 from compensation_hub.ask_compensation.service import ask
 from compensation_hub.db.session import get_db_session
@@ -27,24 +29,46 @@ PlannerDep = Annotated[QueryPlanner, Depends(get_query_planner)]
 
 @router.post("/ask", response_model=AskResponse)
 def ask_compensation(session: SessionDep, planner: PlannerDep, payload: AskRequest) -> AskResponse:
-    outcome = ask(session, payload.question, planner)
+    history = [
+        PlannerTurn(question=turn.question, sql=turn.sql, currency=turn.currency)
+        for turn in payload.history
+    ]
+    outcome = ask(session, payload.question, history, planner)
+
     result = None
-    if outcome.status == "answered":
-        result = AskResult(
-            rows=[
-                AskResultRow(
-                    key=row.key or None,
-                    employee_count=row.employee_count,
-                    total_payroll_usd=row.total_payroll_usd,
-                    average_salary_usd=row.average_salary_usd,
+    if outcome.result is not None:
+        result = AskResultRead(
+            kind="scalar" if outcome.scalar else "table",
+            columns=[
+                ResultColumnRead(
+                    key=column.key,
+                    label=column.label,
+                    type=column.type,
+                    currency=column.currency,
+                    currency_key=column.currency_key,
                 )
-                for row in outcome.rows
-            ]
+                for column in outcome.result.columns
+            ],
+            rows=[
+                ResultRowRead(values=list(row.values), employee_id=row.employee_id)
+                for row in outcome.result.rows
+            ],
+            primary=outcome.primary,
+            total_rows=outcome.result.total_rows,
         )
+
     return AskResponse(
         status=outcome.status,
         question=payload.question,
         answer=outcome.answer,
-        plan=outcome.plan,
+        interpretation=outcome.interpretation,
+        missing=list(outcome.missing),
+        sql=outcome.sql,
+        currency=outcome.currency,
         result=result,
+        analytics_view=(
+            AnalyticsViewRead.model_validate(outcome.analytics_view)
+            if outcome.analytics_view is not None
+            else None
+        ),
     )

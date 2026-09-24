@@ -57,14 +57,15 @@ Cross-country monetary metrics use the normalized analytics currency.
 
 ### Ask Compensation
 
-The HR Manager can ask supported compensation questions in natural language, such as:
+The HR Manager can ask compensation and workforce questions in natural language.
 
-- What is the average salary in Engineering?
-- What is the total payroll for Germany?
-- Show average compensation by department.
-- How many Engineering employees are based in India?
+If Compensation Hub holds the data a question needs, Ask Compensation derives the answer from that data. If the data is not stored, it says which data is missing instead of guessing.
 
-Answers must be based on application data and deterministic calculations. If the available data cannot answer a question reliably, the product should say so rather than guess.
+Answerability depends on the stored data and read-only relational queries over it, not on a list of anticipated questions. That includes filtering with any combination of conditions, looking up and ranking employees, counting, totals, averages, medians, minimums and maximums, grouping, comparisons with a group's own figures, rankings within groups, shares and percentages, differences and ratios, and expressing amounts in any currency with a seeded exchange rate. Answers stay within the product's safety and resource limits.
+
+The HR Manager can ask follow-up questions that refine the previous one, such as converting a result to another currency or narrowing it to a department, without restating the whole question.
+
+Answers must be based on application data and deterministic calculations. Ask Compensation never changes data, never makes salary recommendations, and never infers attributes that are not stored, such as gender from a name.
 
 ## Deliberate Non-Goals
 
@@ -78,7 +79,7 @@ The MVP does not include:
 - bonuses, benefits, equity, or tax calculations,
 - live exchange-rate synchronization,
 - salary recommendations,
-- arbitrary AI-generated database queries,
+- running AI-generated SQL without validation (Ask Compensation runs only validated, read-only SQL over the approved employee and compensation data),
 - document search or RAG.
 
 These capabilities can be considered later if product requirements justify them.
@@ -91,5 +92,5 @@ The MVP is successful when the HR Manager can:
 2. view and update current compensation,
 3. understand key compensation patterns across the organization,
 4. compare compensation across countries using consistent currency values,
-5. ask supported compensation questions and receive answers grounded in application data,
-6. get a clear response when a question cannot be answered reliably.
+5. ask compensation questions, including follow-ups, and receive answers derived from application data,
+6. get a clear response naming the missing data when a question cannot be answered from what is stored.

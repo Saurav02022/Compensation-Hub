@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -5,20 +6,28 @@ import pytest
 from google.genai import errors
 
 from compensation_hub.ask_compensation.provider import (
+    Correction,
     GeminiQueryPlanner,
     PlannerContext,
+    PlannerTurn,
     PlannerUnavailableError,
     UnconfiguredQueryPlanner,
     build_query_planner,
+    build_response_schema,
     build_system_instruction,
 )
 from compensation_hub.core.config import Settings
 
 CONTEXT = PlannerContext(
-    countries=("Germany", "India"),
-    departments=("Engineering", "Sales"),
-    job_titles=("Software Engineer", "Account Executive"),
+    vocabulary={
+        "country": ("Germany", "India"),
+        "department": ("Engineering", "Sales"),
+        "job_title": ("Software Engineer", "Account Executive"),
+        "salary_currency": ("EUR", "INR"),
+    },
+    currencies=("EUR", "INR", "USD"),
 )
+PAYROLL_SQL = "SELECT SUM(salary_usd) AS payroll FROM employees WHERE country = 'Germany'"
 
 
 class FakeResponse:
@@ -44,59 +53,131 @@ class FakeClient:
 
 
 def planner_with(outcome: object) -> tuple[GeminiQueryPlanner, FakeModels]:
-    planner = GeminiQueryPlanner(api_key="test-key", model="gemini-test", timeout_seconds=5)
+    planner = GeminiQueryPlanner(
+        api_key="test-key", model="gemini-test", timeout_seconds=5, thinking_level="medium"
+    )
     client = FakeClient(outcome)
     planner._client = client  # type: ignore[assignment]
     return planner, client.models
 
 
 def test_plan_sends_question_with_constrained_json_config() -> None:
-    planner, models = planner_with(
-        FakeResponse('{"status": "plan", "plan": {"metric": "employee_count"}}')
-    )
+    raw_plan = '{"status": "query", "sql": "SELECT 1"}'
+    planner, models = planner_with(FakeResponse(raw_plan))
 
-    raw = planner.plan("How many employees are there?", CONTEXT)
+    raw = planner.plan("How many employees are there?", [], CONTEXT)
 
-    assert raw == '{"status": "plan", "plan": {"metric": "employee_count"}}'
+    assert raw == raw_plan
     call = models.calls[0]
     assert call["model"] == "gemini-test"
-    assert call["contents"] == "How many employees are there?"
+    assert [content.role for content in call["contents"]] == ["user"]
+    assert call["contents"][0].parts[0].text == "How many employees are there?"
     config = call["config"]
     assert config.temperature == 0
+    assert config.thinking_config.thinking_level == "MEDIUM"
     assert config.response_mime_type == "application/json"
-    assert config.response_json_schema["properties"]["status"]["enum"] == ["plan", "unsupported"]
+    assert config.response_json_schema == build_response_schema(CONTEXT)
     assert "Germany" in config.system_instruction
     assert "Account Executive" in config.system_instruction
 
 
-def test_system_instruction_lists_only_dimension_vocabulary() -> None:
+def test_history_is_sent_as_prior_turns_with_sql_only() -> None:
+    planner, models = planner_with(FakeResponse("{}"))
+    history = [PlannerTurn("What is the total payroll in Germany?", PAYROLL_SQL, "USD")]
+
+    planner.plan("Convert that to INR.", history, CONTEXT)
+
+    contents = models.calls[0]["contents"]
+    assert [content.role for content in contents] == ["user", "model", "user"]
+    assert contents[0].parts[0].text == "What is the total payroll in Germany?"
+    reply = json.loads(contents[1].parts[0].text)
+    assert reply == {"status": "query", "sql": PAYROLL_SQL, "currency": "USD"}
+    assert contents[2].parts[0].text == "Convert that to INR."
+
+
+def test_a_correction_repeats_the_rejected_response_and_the_reason() -> None:
+    planner, models = planner_with(FakeResponse("{}"))
+    rejected = '{"status": "query", "sql": "SELECT gender FROM employees"}'
+
+    planner.plan(
+        "Headcount by gender?",
+        [],
+        CONTEXT,
+        Correction(rejected, "The column gender does not exist."),
+    )
+
+    contents = models.calls[0]["contents"]
+    assert [content.role for content in contents] == ["user", "model", "user"]
+    assert contents[1].parts[0].text == rejected
+    assert "The column gender does not exist." in contents[2].parts[0].text
+
+
+def test_system_instruction_describes_the_surface_and_the_rules() -> None:
     instruction = build_system_instruction(CONTEXT)
 
+    for column in ("employee_id", "full_name", "salary_usd", "salary_local", "rate_to_usd"):
+        assert f"- {column} (" in instruction
     assert '"Germany", "India"' in instruction
-    assert '"Engineering", "Sales"' in instruction
-    assert "unsupported" in instruction
-    assert "who should get a raise" in instruction
+    assert "EUR, INR, USD" in instruction
+    assert "missing_data" in instruction
+    assert "salary recommendations" in instruction
+    assert "never aggregate it" in instruction
+    assert "a new question is answered" in instruction
+
+
+def test_response_schema_uses_only_the_supported_json_schema_subset() -> None:
+    supported = {
+        "type", "properties", "required", "items", "enum", "anyOf", "minimum", "maximum",
+        "maxItems", "minItems", "description",
+    }  # fmt: skip
+
+    def keywords(node: object) -> set[str]:
+        if isinstance(node, dict):
+            found = set(node) - {"properties"}
+            for key, value in node.items():
+                if key == "properties":
+                    for child in value.values():
+                        found |= keywords(child)
+                else:
+                    found |= keywords(value)
+            return found | ({"properties"} if "properties" in node else set())
+        if isinstance(node, list):
+            return set().union(*(keywords(item) for item in node)) if node else set()
+        return set()
+
+    schema = build_response_schema(CONTEXT)
+    assert keywords(schema) <= supported
+    assert "maxItems" not in keywords(schema)
+
+
+def test_response_schema_offers_only_configured_currencies() -> None:
+    schema: dict[str, Any] = build_response_schema(CONTEXT)
+    properties = schema["properties"]
+
+    assert properties["currency"]["enum"] == ["EUR", "INR", "USD"]
+    # Every property is required so constrained decoding fills in the whole response.
+    assert schema["required"] == list(properties)
 
 
 def test_api_error_becomes_unavailable() -> None:
     planner, _ = planner_with(errors.APIError(503, {"error": {"message": "overloaded"}}))
 
     with pytest.raises(PlannerUnavailableError, match="status 503"):
-        planner.plan("How many employees are there?", CONTEXT)
+        planner.plan("How many employees are there?", [], CONTEXT)
 
 
 def test_network_error_becomes_unavailable() -> None:
     planner, _ = planner_with(httpx.ConnectError("connection refused"))
 
     with pytest.raises(PlannerUnavailableError, match="could not be reached"):
-        planner.plan("How many employees are there?", CONTEXT)
+        planner.plan("How many employees are there?", [], CONTEXT)
 
 
 def test_empty_response_becomes_unavailable() -> None:
     planner, _ = planner_with(FakeResponse(None))
 
     with pytest.raises(PlannerUnavailableError, match="empty"):
-        planner.plan("How many employees are there?", CONTEXT)
+        planner.plan("How many employees are there?", [], CONTEXT)
 
 
 def test_build_query_planner_uses_gemini_when_key_is_configured(
@@ -105,11 +186,13 @@ def test_build_query_planner_uses_gemini_when_key_is_configured(
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@localhost:5432/db")
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_MODEL", "gemini-custom")
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", "high")
 
     planner = build_query_planner(Settings(_env_file=None))
 
     assert isinstance(planner, GeminiQueryPlanner)
     assert planner._model == "gemini-custom"
+    assert planner._thinking_level == "HIGH"
 
 
 def test_build_query_planner_is_unconfigured_without_key(monkeypatch: pytest.MonkeyPatch) -> None:

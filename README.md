@@ -16,7 +16,7 @@ The application is deployed on Google Cloud Run in India.
 - View and update an employee's current annual salary.
 - Keep employee compensation in local currency while using USD for cross-country analytics.
 - View employee count, total annual payroll, average annual salary, and compensation breakdowns.
-- Ask supported compensation questions in natural language through **Ask Compensation**.
+- Ask compensation questions in natural language, including follow-ups, through **Ask Compensation**.
 
 ## Compensation Model
 
@@ -28,30 +28,27 @@ The MVP manages current compensation only. Salary history, payroll processing, a
 
 ## Ask Compensation
 
-Ask Compensation provides natural-language access to the product's existing analytics capabilities.
+If Compensation Hub stores the data a question needs, Ask Compensation derives the answer from that data. If it does not, Ask Compensation says which data is missing instead of guessing.
 
 ```text
-HR question
+HR question (+ earlier questions in the conversation)
     |
     v
-LLM
+LLM: candidate read-only SQL
     |
     v
-Validated structured query
+SQL parser -> syntax tree -> allowlist, bounds, and money-rule validation
     |
     v
-Analytics service
+PostgreSQL (read-only transaction, statement timeout)
     |
     v
-PostgreSQL
-    |
-    v
-Authoritative result
+Exact result
 ```
 
-The LLM interprets intent; it is not the source of truth.
+Questions are not matched against a fixed list. The model writes a SELECT over two approved relations, `employees` and `fx_rates`, which the application defines over the real tables. The backend parses that SQL, accepts only allowlisted read-only constructs and functions within size limits, enforces the money rules (amounts combined only in USD, local salaries never aggregated), and runs the SQL it rebuilt from the validated syntax tree. Follow-up questions such as "Convert that to INR" refine the previous question.
 
-It does not receive database credentials, execute arbitrary SQL, update compensation data, or calculate authoritative compensation values.
+The LLM interprets intent; it is not the source of truth. It does not receive database credentials or employee records, never runs SQL itself, cannot change data, and does not calculate or phrase the figures in an answer.
 
 ## Architecture
 
@@ -141,7 +138,7 @@ uv run uvicorn compensation_hub.main:app --reload
 
 `.env.example` documents every backend environment variable. The API reads `DATABASE_URL` at startup.
 
-Ask Compensation uses the Gemini API through the official `google-genai` SDK. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in `.env` to enable it. Without a key the API answers `POST /analytics/ask` with `503` and a clear message, and every other feature keeps working.
+Ask Compensation uses the Gemini API through the official `google-genai` SDK. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL` and `GEMINI_THINKING_LEVEL`) in `.env` to enable it. Without a key the API answers `POST /analytics/ask` with `503` and a clear message, and every other feature keeps working.
 
 The seed command loads the deterministic dataset of 10,000 employees, their current compensation, and the exchange rates. It refuses to run against a database that already contains employees; pass `--reset` to truncate the MVP tables and load the same dataset again.
 

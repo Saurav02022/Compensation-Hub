@@ -1,59 +1,123 @@
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
-from compensation_hub.analytics.service import (
-    ANALYTICS_CURRENCY,
-    AnalyticsFilters,
-    BreakdownRow,
-    SortBy,
-    get_breakdown,
-    get_summary,
+from compensation_hub.ask_compensation.answers import (
+    analytics_view,
+    compose_answer,
+    is_scalar,
+    primary_column,
 )
-from compensation_hub.ask_compensation.provider import PlannerContext, QueryPlanner
-from compensation_hub.ask_compensation.schemas import Metric, PlannerResponse, QueryPlan
-from compensation_hub.employees.service import list_filter_options
+from compensation_hub.ask_compensation.execution import (
+    QueryResult,
+    begin_read_only,
+    ensure_fx_rates,
+    execute_sql,
+)
+from compensation_hub.ask_compensation.plan import PlannerResponse, QueryResponse
+from compensation_hub.ask_compensation.provider import (
+    Correction,
+    PlannerContext,
+    PlannerTurn,
+    QueryPlanner,
+)
+from compensation_hub.ask_compensation.sql_validation import (
+    ForbiddenSqlError,
+    InvalidSqlError,
+    UnknownReferenceError,
+    ValidatedSql,
+    validate_sql,
+)
+from compensation_hub.ask_compensation.surface import (
+    STORED_DATA_DESCRIPTION,
+    VOCABULARY_COLUMNS,
+    vocabulary_query,
+)
+from compensation_hub.db.models import FxRate
 
 logger = logging.getLogger(__name__)
 
 PLANNER_RESPONSE = TypeAdapter[PlannerResponse](PlannerResponse)
 
-METRIC_LABELS: dict[Metric, str] = {
-    "employee_count": "Employee count",
-    "average_salary": "Average annual salary",
-    "total_payroll": "Total annual payroll",
-}
-METRIC_SORT_COLUMNS: dict[Metric, SortBy] = {
-    "employee_count": "employee_count",
-    "average_salary": "average_salary_usd",
-    "total_payroll": "total_payroll_usd",
-}
-DIMENSION_LABELS = {"country": "country", "department": "department", "job_title": "job title"}
-UNSUPPORTED_ANSWER = (
-    "This question cannot be answered reliably with the supported compensation analytics. "
-    "Try asking about employee count, average annual salary, or total annual payroll, "
-    "optionally filtered or grouped by country, department, or job title."
+# The planner gets one chance to correct a response the application rejected; a second
+# rejection is reported to the HR Manager instead of retrying indefinitely.
+MAX_ATTEMPTS = 2
+
+UNINTERPRETABLE_ANSWER = (
+    "This question could not be turned into a reliable query over the employee and "
+    "compensation data. Try rephrasing it."
 )
-NORMALIZATION_NOTE = (
-    f"Monetary values are normalized to {ANALYTICS_CURRENCY} using seeded exchange rates."
+READ_ONLY_ANSWER = (
+    "Ask Compensation only answers read-only questions about the employee and compensation "
+    "data, so this request cannot be run."
 )
+# The planner's own reason is logged, not shown: wording stays consistent and never describes
+# the query machinery.
+OUT_OF_SCOPE_ANSWER = (
+    "Ask Compensation answers factual, read-only questions about employees and their current "
+    "compensation. It does not change data, recommend pay, judge performance, or answer "
+    "unrelated questions."
+)
+TIMEOUT_ANSWER = "This question needs a query that takes too long to run. Try narrowing it."
+# A correlated subquery re-reads the surface once per employee; on 10,000 employees that runs
+# for tens of seconds, while the same comparison with a window function takes milliseconds.
+SLOW_QUERY_PROBLEM = (
+    "The query exceeded the time limit. Avoid correlated subqueries: compare rows with their "
+    "group's figures using window functions such as AVG(salary_usd) OVER (PARTITION BY "
+    "department), or join a CTE grouped once."
+)
+# PostgreSQL error classes a corrected query can fix: syntax or access rule violations,
+# data exceptions, and cardinality violations such as a scalar subquery returning many rows.
+CORRECTABLE_SQLSTATE_CLASSES = ("42", "22", "21")
+# Within those classes, a missing privilege or table means the surface itself is broken, which
+# no rewrite of the query can fix, so these are raised as server errors instead.
+INFRASTRUCTURE_SQLSTATES = frozenset({"42501", "42P01"})
+READ_ONLY_VIOLATION = "25006"
+QUERY_CANCELED = "57014"
+CONTEXT_TIMEOUT = "5s"
 
 
 class InvalidPlanError(Exception):
-    """The provider's response could not be validated into a supported query plan."""
+    """The provider's response could not be validated into a planner response."""
+
+
+@dataclass(frozen=True)
+class DataContext:
+    vocabulary: dict[str, tuple[str, ...]]
+    fx_rates: dict[str, Decimal]
 
 
 @dataclass(frozen=True)
 class AskOutcome:
-    status: Literal["answered", "unsupported"]
+    status: Literal["answered", "missing_data", "unsupported"]
     answer: str
-    plan: QueryPlan | None = None
-    rows: tuple[BreakdownRow, ...] = ()
+    missing: tuple[str, ...] = ()
+    sql: str | None = None
+    currency: str = "USD"
+    interpretation: str | None = None
+    result: QueryResult | None = None
+    scalar: bool = False
+    primary: str | None = None
+    analytics_view: dict[str, str | None] | None = None
+
+
+def _drop_nulls(value: object) -> object:
+    # Schema-guided providers emit every declared property, so a query arrives with
+    # "reason": null, "missing": [], and so on. Empty values carry no content; unexpected
+    # keys with content are still rejected by the strict models.
+    if isinstance(value, dict):
+        return {
+            key: _drop_nulls(item) for key, item in value.items() if item is not None and item != []
+        }
+    return value
 
 
 def parse_planner_response(raw: str) -> PlannerResponse:
@@ -66,136 +130,137 @@ def parse_planner_response(raw: str) -> PlannerResponse:
         payload = json.loads(text)
     except json.JSONDecodeError as error:
         raise InvalidPlanError(f"Planner response is not valid JSON: {error.msg}") from error
-    if isinstance(payload, dict):
-        # Schema-guided providers emit every top-level property, so a plan arrives with
-        # "reason": null and vice versa. Nulls carry no content; non-null extras are still rejected.
-        payload = {key: value for key, value in payload.items() if value is not None}
     try:
-        return PLANNER_RESPONSE.validate_python(payload)
+        return PLANNER_RESPONSE.validate_python(_drop_nulls(payload))
     except ValidationError as error:
         raise InvalidPlanError(
             f"Planner response failed validation: {error.error_count()} errors"
         ) from error
 
 
-def _validate_filter_values(plan: QueryPlan, context: PlannerContext) -> str | None:
-    """Return a reason when a filter names a value that does not exist in the data."""
-    known = {
-        "country": set(context.countries),
-        "department": set(context.departments),
-        "job_title": set(context.job_titles),
-    }
-    for field, values in known.items():
-        value = getattr(plan.filters, field)
-        if value is not None and value not in values:
-            return f"There is no {DIMENSION_LABELS[field]} named {value!r} in the employee data."
-    return None
+def load_data_context(session: Session) -> DataContext:
+    vocabulary: dict[str, tuple[str, ...]] = {}
+    connection = session.connection()
+    for name in VOCABULARY_COLUMNS:
+        values = connection.exec_driver_sql(vocabulary_query(name)).scalars()
+        vocabulary[name] = tuple(str(value) for value in values)
+    rates = session.execute(select(FxRate.currency_code, FxRate.rate_to_usd)).all()
+    return DataContext(vocabulary=vocabulary, fx_rates={code: rate for code, rate in rates})
 
 
-def _describe_filters(plan: QueryPlan) -> str:
-    parts = [
-        f"{DIMENSION_LABELS[field]} {value}"
-        for field, value in (
-            ("country", plan.filters.country),
-            ("department", plan.filters.department),
-            ("job_title", plan.filters.job_title),
-        )
-        if value is not None
-    ]
-    return f" for {', '.join(parts)}" if parts else " across the organization"
-
-
-def _metric_value(metric: Metric, row: BreakdownRow) -> str:
-    if metric == "employee_count":
-        return f"{row.employee_count:,}"
-    value: Decimal | None = (
-        row.total_payroll_usd if metric == "total_payroll" else row.average_salary_usd
-    )
-    return "not available" if value is None else f"{ANALYTICS_CURRENCY} {value:,.2f}"
-
-
-def _compose_answer(plan: QueryPlan, rows: list[BreakdownRow]) -> str:
-    label = METRIC_LABELS[plan.metric]
-    scope = _describe_filters(plan)
-    monetary = plan.metric != "employee_count"
-
-    if plan.group_by is None:
-        row = rows[0]
-        sentence = f"{label}{scope}: {_metric_value(plan.metric, row)}"
-        if monetary:
-            sentence += f" ({row.employee_count:,} employees)"
-        sentence += "."
-    elif not rows:
-        sentence = f"No employees match{scope}."
-    else:
-        dimension = DIMENSION_LABELS[plan.group_by]
-        qualifier = ""
-        if plan.sort is not None:
-            direction = "highest" if plan.sort == "desc" else "lowest"
-            qualifier = f", {direction} first"
-        if plan.limit is not None:
-            qualifier += f", top {plan.limit}"
-        listing = "; ".join(f"{row.key}: {_metric_value(plan.metric, row)}" for row in rows)
-        sentence = f"{label} by {dimension}{scope}{qualifier}: {listing}."
-
-    return f"{sentence} {NORMALIZATION_NOTE}" if monetary else sentence
-
-
-def _execute(session: Session, plan: QueryPlan) -> list[BreakdownRow]:
-    filters = AnalyticsFilters(
-        country=plan.filters.country,
-        department=plan.filters.department,
-        job_title=plan.filters.job_title,
-    )
-    if plan.group_by is None:
-        summary = get_summary(session, filters)
-        return [
-            BreakdownRow(
-                key="",
-                employee_count=summary.employee_count,
-                total_payroll_usd=summary.total_payroll_usd,
-                average_salary_usd=summary.average_salary_usd,
-            )
-        ]
-    return get_breakdown(
-        session,
-        plan.group_by,
-        filters,
-        sort_by=METRIC_SORT_COLUMNS[plan.metric] if plan.sort else "key",
-        descending=plan.sort == "desc",
-        limit=plan.limit,
+def _missing(names: Sequence[str]) -> AskOutcome:
+    described = [name.replace("_", " ") for name in names]
+    return AskOutcome(
+        status="missing_data",
+        answer=(
+            f"This needs data Compensation Hub does not store: {', '.join(described)}. "
+            f"{STORED_DATA_DESCRIPTION}."
+        ),
+        missing=tuple(described),
     )
 
 
-def ask(session: Session, question: str, planner: QueryPlanner) -> AskOutcome:
-    """Interpret the question with the planner, then answer it from deterministic analytics.
+def _run(
+    session: Session, response: QueryResponse, validated: ValidatedSql, rate: Decimal
+) -> AskOutcome:
+    begin_read_only(session)
+    try:
+        result = execute_sql(session, validated, response.currency, rate)
+    finally:
+        session.rollback()
+    primary = primary_column(result, response.primary)
+    return AskOutcome(
+        status="answered",
+        answer=compose_answer(result, primary, response.currency),
+        sql=validated.sql,
+        currency=response.currency,
+        interpretation=response.interpretation,
+        result=result,
+        scalar=is_scalar(result),
+        primary=primary,
+        analytics_view=analytics_view(validated.tree, response.currency),
+    )
+
+
+def ask(
+    session: Session, question: str, history: Sequence[PlannerTurn], planner: QueryPlanner
+) -> AskOutcome:
+    """Interpret the question with the planner, then answer it from PostgreSQL.
 
     Provider failures propagate as PlannerUnavailableError so the API can report the feature
-    as unavailable; invalid or unsupported plans produce an explicit unsupported outcome.
+    as unavailable. Questions that need data the product does not store produce a missing-data
+    outcome; requests that are not read-only questions about the data are unsupported.
     """
-    options = list_filter_options(session)
-    context = PlannerContext(
-        countries=options.countries,
-        departments=options.departments,
-        job_titles=options.job_titles,
+    # Reading the vocabulary runs fixed application queries, not planned SQL.
+    begin_read_only(session, CONTEXT_TIMEOUT)
+    ensure_fx_rates(session)
+    context = load_data_context(session)
+    # No transaction is held open while the provider is called.
+    session.rollback()
+
+    planner_context = PlannerContext(
+        vocabulary=context.vocabulary, currencies=tuple(sorted(context.fx_rates))
     )
+    correction: Correction | None = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        final = attempt == MAX_ATTEMPTS
+        raw = planner.plan(question, history, planner_context, correction)
+        try:
+            response = parse_planner_response(raw)
+        except InvalidPlanError as error:
+            logger.warning("Rejected planner response: %s", error)
+            if final:
+                return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)
+            correction = Correction(raw, "It was not a valid response object.")
+            continue
 
-    raw = planner.plan(question, context)
-    try:
-        response = parse_planner_response(raw)
-    except InvalidPlanError as error:
-        logger.warning("Rejected planner response: %s", error)
-        return AskOutcome(status="unsupported", answer=UNSUPPORTED_ANSWER)
+        if response.status == "unsupported":
+            logger.info("Planner declined the question: %s", response.reason)
+            return AskOutcome(status="unsupported", answer=OUT_OF_SCOPE_ANSWER)
+        if response.status == "missing_data":
+            return _missing(response.missing)
 
-    if response.status == "unsupported":
-        return AskOutcome(status="unsupported", answer=f"{UNSUPPORTED_ANSWER} ({response.reason})")
+        rate = context.fx_rates.get(response.currency)
+        if rate is None:
+            return _missing([f"{response.currency} exchange rate"])
+        try:
+            validated = validate_sql(response.sql, frozenset(response.percent_columns))
+        except ForbiddenSqlError as error:
+            logger.warning("Rejected forbidden SQL: %s", error.message)
+            return AskOutcome(status="unsupported", answer=READ_ONLY_ANSWER)
+        except UnknownReferenceError as error:
+            if final:
+                return _missing(error.names)
+            correction = Correction(raw, error.message)
+            continue
+        except InvalidSqlError as error:
+            logger.info("Rejected planned SQL: %s", error.message)
+            if final:
+                return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)
+            correction = Correction(raw, error.message)
+            continue
 
-    plan = response.plan
-    reason = _validate_filter_values(plan, context)
-    if reason is not None:
-        return AskOutcome(status="unsupported", answer=f"{reason} {UNSUPPORTED_ANSWER}")
+        try:
+            return _run(session, response, validated, rate)
+        except DBAPIError as error:
+            sqlstate = str(getattr(error.orig, "sqlstate", "") or "")
+            if sqlstate == QUERY_CANCELED:
+                if final:
+                    return AskOutcome(status="unsupported", answer=TIMEOUT_ANSWER)
+                correction = Correction(raw, SLOW_QUERY_PROBLEM)
+                continue
+            if sqlstate == READ_ONLY_VIOLATION:
+                # Validation should make this unreachable; PostgreSQL refusing is the backstop.
+                logger.error("PostgreSQL refused a write from validated SQL")
+                return AskOutcome(status="unsupported", answer=READ_ONLY_ANSWER)
+            correctable = sqlstate.startswith(CORRECTABLE_SQLSTATE_CLASSES)
+            if not correctable or sqlstate in INFRASTRUCTURE_SQLSTATES:
+                raise
+            diagnostic = getattr(error.orig, "diag", None)
+            message = getattr(diagnostic, "message_primary", None) or "The query failed."
+            logger.info("Planned SQL failed in PostgreSQL: %s", message)
+            if final:
+                return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)
+            correction = Correction(raw, f"PostgreSQL rejected the query: {message}")
 
-    rows = _execute(session, plan)
-    return AskOutcome(
-        status="answered", answer=_compose_answer(plan, rows), plan=plan, rows=tuple(rows)
-    )
+    return AskOutcome(status="unsupported", answer=UNINTERPRETABLE_ANSWER)

@@ -92,7 +92,7 @@ export default async function OverviewPage() {
           Ask a question
         </h2>
         <p className="mt-0.5 mb-3 text-[13px] text-ink-muted">
-          Ask Compensation answers from the same figures as Analytics, in plain language.
+          Ask Compensation answers questions in plain language, computed from the employee and salary data.
         </p>
         <AskExamples questions={EXAMPLE_QUESTIONS} />
       </section>

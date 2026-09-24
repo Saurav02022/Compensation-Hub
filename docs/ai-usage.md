@@ -6,9 +6,11 @@ This document defines how AI is used in Compensation Hub and how AI-assisted dev
 
 ### Ask Compensation
 
-Ask Compensation provides a natural-language interface over the product's existing analytics capabilities.
+Ask Compensation provides a natural-language interface over the employee and compensation data Compensation Hub stores.
 
-Its responsibility is limited to interpreting a user's question and converting it into a supported, structured analytics request.
+If the stored data can answer a question, Ask Compensation derives the answer from that data. If it cannot, Ask Compensation names the data that is missing instead of guessing.
+
+The model's responsibility is limited to interpreting the question, together with any earlier questions it follows up, and writing a candidate read-only SQL query over the approved data, or reporting that the question needs data that is not stored or is not a question about the data.
 
 The flow is:
 
@@ -19,13 +21,13 @@ HR question
 LLM
     |
     v
-Structured Query Plan
+Candidate read-only SQL
     |
     v
-Validation
+Parsing and validation of the syntax tree
     |
     v
-Analytics Service
+Read-only execution of the SQL rebuilt from the validated tree
     |
     v
 PostgreSQL
@@ -39,29 +41,27 @@ The LLM is not the source of truth for compensation data.
 It does not:
 
 - receive database credentials,
-- generate or execute arbitrary SQL,
+- execute SQL, or have its SQL run without validation,
 - update employee or compensation data,
 - calculate authoritative compensation values,
+- write the answer text,
 - make salary recommendations,
-- decide who should receive a raise.
+- decide who should receive a raise,
+- infer attributes that are not stored, such as gender from a name.
 
-All calculations are performed by deterministic application and database logic.
-
-If a question cannot be represented by the supported analytics model, the product returns a clear unsupported response rather than guessing.
+All calculations are performed by PostgreSQL and deterministic application logic, and answers are composed by application code.
 
 ### Structured Output
 
-The model returns a constrained query plan containing only supported concepts such as:
+The model returns one of three responses:
 
-- metric,
-- filters,
-- grouping,
-- sorting,
-- result limit.
+- a query: one SELECT over the approved `employees` and `fx_rates` relations, the answer currency, a one-sentence reading of what the query computes, which result columns are percentages, and which column holds the headline figure,
+- a missing-data response naming the data the question needs,
+- an unsupported response for requests that are not factual questions about the data; the product answers these with fixed wording rather than the model's reason.
 
-The backend validates the plan before execution.
+The backend parses every query, accepts only allowlisted read-only constructs and functions within size limits, enforces the money rules, and executes SQL rebuilt from the validated syntax tree in a read-only transaction. A rejected response gets one correction attempt; a write or out-of-surface request gets none.
 
-Invalid or unsupported output is rejected before it reaches the analytics layer.
+Invalid or unsafe output is rejected before any data is read.
 
 ### Reliability
 
@@ -80,15 +80,15 @@ The product must never fall back to invented compensation results.
 
 Automated tests do not depend on live LLM calls.
 
-The LLM boundary is mocked so tests can verify:
+The SQL validator is tested on parsed queries, and validated SQL is run against PostgreSQL with expected results computed independently from the seed data. The LLM boundary is mocked so tests can also verify:
 
-- valid query plans,
-- invalid query plans,
-- unsupported questions,
-- filtering and grouping behavior,
-- attempts to use AI for write operations.
+- valid, malformed, and unsafe SQL and planner responses,
+- the correction attempt,
+- missing-data and unsupported responses,
+- follow-up context and its bounds,
+- attempts to use AI for write operations, system catalog access, or SQL injection.
 
-A small set of live-model evaluation cases may be run separately to verify that representative natural-language questions map to the expected structured requests.
+A small set of live-model evaluation cases may be run separately to check that varied natural-language questions, follow-ups, questions needing absent data, and adversarial requests map to the expected results. They evaluate interpretation; they do not define which questions are supported.
 
 ## AI-Assisted Development
 
@@ -408,6 +408,54 @@ How it was verified: 66 frontend tests, eslint, tsc, and next build; CI green;
   a live Ask question, an unsupported question, and the panel across
   navigation all passed; no warnings, errors, or non-200 responses in either
   service log after the deploy.
+```
+
+```text
+Date: 2026-09-24
+Tool: Claude Code
+Task: Data-grounded Ask Compensation
+How AI was used: Researched structured output, SQL parsers, and PostgreSQL
+  read-only and aggregate semantics; compared a fixed intent catalogue, RAG, a
+  custom query representation, unrestricted text-to-SQL, and controlled SQL;
+  built the approved data surface, the sqlglot-based validator, unit inference
+  for money rules, read-only execution, the correction attempt, conversation
+  context, generic result rendering, the tests, and the live evaluation.
+What was accepted: Controlled read-only SQL over two approved relations defined
+  as CTEs (D019); allowlisted syntax, relations, columns, and functions with size
+  bounds; money rules enforced by tracing columns to the surface; exact medians,
+  exact division, and bound literals as deterministic rewrites; execution in a
+  READ ONLY transaction with a statement timeout; follow-up context carried as
+  earlier SQL, never results (D020); sqlglot (MIT) over pglast (GPL-3.0).
+What was changed or rejected: A custom query representation was built and
+  tested first, then replaced because it rejected answerable questions (OR
+  conditions, group-relative comparisons, per-group rankings) that SQL expresses
+  directly. A dedicated database role was rejected for needing CREATEROLE in
+  every environment. The model at first wrote correlated subqueries that took
+  18-40 seconds on 10,000 employees; sqlglot's subquery unnesting produced invalid
+  SQL under GROUP BY, so the prompt now steers to window functions or grouped
+  CTEs (about 11 ms) and a timeout earns one correction. Missing-data responses
+  were rejected at first because schema-guided output adds keys; responses that
+  carry no SQL now ignore extra keys. A timeout test caught the context queries
+  sharing the planned-query timeout, which now has its own.
+  A final review then found that rate arithmetic could launder a currency
+  conversion past the money rules (rate * 1, rate / rate), that local salaries
+  could reach an aggregate through a scalar subquery, that dynamic-SQL and
+  session functions such as query_to_xml and version() were offered a
+  correction instead of being refused, that a missing privilege or table was
+  retried as a planner mistake, that declined answers showed the model's own
+  wording, and that a model LIMIT equal to the row cap hid the total; each was
+  fixed with regression tests, and unused text functions were removed.
+How it was verified: 276 backend tests (122 validator cases on parsed SQL, 23
+  execution cases against PostgreSQL, 37 API cases), ruff, and mypy; 70
+  frontend tests, eslint, tsc, and next build, all repeated from a fresh clone;
+  the live evaluation passed 35 of 35 on four runs, then 44 of 44 on two runs
+  after it was extended, at the low thinking level, which was kept after medium
+  scored 34 of 35 and ran 45% slower; representative query shapes ran in 1-19
+  ms on 10,000 employees; questions written after implementation, follow-ups,
+  topic resets, missing-data, write, and injection requests were exercised
+  through the UI and API with twenty figures checked by independent SQL; salary
+  edits were reflected in answers and restored; the provider-unavailable
+  response was checked with no key.
 ```
 
 ## Working Principle

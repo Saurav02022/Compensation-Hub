@@ -18,11 +18,11 @@ const NAVIGATION: { href: string; label: string; icon: IconName }[] = [
 ];
 
 export const SUGGESTED_QUESTIONS = [
-  "What is the average salary in Engineering?",
-  "What is the total payroll in Germany?",
-  "Compare average salary by department.",
-  "How many Engineering employees are based in India?",
-  "Which three countries have the highest payroll?",
+  "Which department has the largest payroll?",
+  "What is the median salary in Sales?",
+  "Who are the five highest-paid employees in Germany?",
+  "What percentage of Engineering employees are in India?",
+  "Which currencies are salaries paid in?",
 ];
 
 /** The panel docks beside the page from this width; below it, it opens as a sheet over the page. */

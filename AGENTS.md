@@ -136,7 +136,7 @@ Do not add the following unless the project documents are intentionally updated 
 - bonuses, benefits, equity, or tax calculations,
 - live FX synchronization,
 - salary recommendations,
-- arbitrary text-to-SQL,
+- text-to-SQL without parsing, allowlist validation, and read-only execution,
 - RAG or vector search,
 - microservices,
 - Kubernetes.
@@ -347,18 +347,18 @@ Ask Compensation is read-only.
 The LLM may:
 
 - interpret a natural-language question,
-- return a constrained structured analytics request.
+- write a candidate read-only SQL query over the approved Ask Compensation data surface, which is parsed and validated before it runs.
 
 The LLM must not:
 
 - receive database credentials,
-- generate or execute arbitrary SQL,
+- execute SQL, or have its SQL run without validation,
 - update employee or compensation data,
 - calculate authoritative compensation values,
 - make salary recommendations,
 - decide who should receive a raise.
 
-Validate all model output before using it.
+Validate all model output before using it. Model-written SQL must be parsed into a syntax tree, checked against allowlists and bounds, rebuilt from the validated tree, and run in a read-only transaction; never validate SQL with regular expressions.
 
 All authoritative compensation results come from application logic and PostgreSQL.
 
