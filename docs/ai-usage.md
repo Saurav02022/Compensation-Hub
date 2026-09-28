@@ -458,6 +458,34 @@ How it was verified: 276 backend tests (122 validator cases on parsed SQL, 23
   response was checked with no key.
 ```
 
+```text
+Date: 2026-09-24
+Tool: Claude Code
+Task: Phase 10 — production redeploy of data-grounded Ask Compensation
+How AI was used: Built the backend and frontend images for the merged main
+  with Cloud Build, deployed the backend and verified it before deploying the
+  frontend to the existing Cloud Run services, ran the production smoke test in
+  a browser, and reviewed the Cloud Run request and error logs.
+What was accepted: No migration was run because none was added after 0003, and
+  the production database was neither reseeded nor reset; both services kept
+  their secrets, service accounts, and settings, with GEMINI_THINKING_LEVEL left
+  at its low default.
+What was changed or rejected: The first deploy attempt stopped on an expired
+  gcloud credential, which was renewed before continuing. A favicon.ico 404 in
+  the frontend logs predates this deploy and was left unchanged.
+How it was verified: The new backend answered a ranked employee question before
+  the frontend was deployed; in the production UI a payroll question, its
+  conversion to INR, and a department follow-up kept their context, a new
+  question did not inherit it, a top-five ranking, a group-relative comparison,
+  and an OR condition were answered, gender and last-year questions named the
+  missing data, and delete and pg_stat_activity requests were declined, with
+  figures matching the Analytics endpoints; directory search, filters,
+  pagination, employee detail, a salary edit reflected in an answer and
+  restored, Analytics, the docked panel across navigation, and the mobile sheet
+  at 375 px all passed; the summary and breakdowns were identical before and
+  after testing; neither service logged an error.
+```
+
 ## Working Principle
 
 AI can accelerate the work, but it does not replace ownership.

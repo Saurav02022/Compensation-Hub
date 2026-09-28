@@ -4,7 +4,7 @@ This document is the execution tracker for Compensation Hub.
 
 It defines the order of work and the exit condition for each phase. Product scope belongs in `requirements.md`, accepted choices in `decisions.md`, system design in `architecture.md`, and AI-specific rules in `ai-usage.md`.
 
-**Current phase:** Phase 10 — Data-Grounded Ask Compensation (the Phase 7 demo recording is still pending)
+**Current phase:** Phase 7 — Final Product Review and Delivery (the demo recording is the remaining open item; Phase 10 is complete)
 
 ## Status
 
@@ -256,6 +256,6 @@ Ask Compensation rejected questions the stored data could answer, first because 
 - [x] Re-evaluate the Gemini thinking level on the SQL evaluation.
 - [x] Verify end to end against the seeded database and review query performance.
 - [x] Record the decisions and update the documentation.
-- [ ] Redeploy to Cloud Run after review.
+- [x] Redeploy to Cloud Run after review.
 
-**Exit condition:** questions answerable from the stored data are answered from it through validated read-only SQL, including follow-ups; questions needing absent data name what is missing; writes and reads outside the surface cannot run; lint, type, test, and build checks pass.
+**Exit condition:** complete — questions answerable from the stored data are answered from it through validated read-only SQL, including follow-ups; questions needing absent data name what is missing; writes and reads outside the surface cannot run; lint, type, test, and build checks pass.
