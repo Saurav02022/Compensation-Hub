@@ -438,9 +438,11 @@ Do not include phrases such as:
 
 Do not add AI tool signatures, generated-by comments, or automatic co-author trailers unless explicitly requested.
 
-Do not leave prompt text, scratch notes, analysis files, temporary plans, or agent conversation logs in the repository.
+Do not leave scratch notes, analysis files, temporary plans, full prompt transcripts, or agent conversation logs in the repository.
 
-Meaningful AI-assisted engineering work belongs only in the concise development record defined by `docs/ai-usage.md`.
+The only prompt text allowed is the Key Prompts section of `docs/ai-usage.md`: a small selection of prompts, quoted as written or condensed to the same instructions, with secrets removed.
+
+Meaningful AI-assisted engineering work belongs only in the concise development record and the Key Prompts section of `docs/ai-usage.md`.
 
 Do not hide or misrepresent AI use. The goal is a clean product repository, while `docs/ai-usage.md` records meaningful AI involvement transparently.
 
