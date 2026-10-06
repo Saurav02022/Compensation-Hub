@@ -367,3 +367,17 @@ Questions such as "Convert that to INR" or "What about Engineering only?" only m
 **Trade-off**
 
 Context is limited to the latest four answered questions and is lost when the conversation is cleared or the page is reloaded. Whether a question refers back is the model's reading; every answer states its currency and its reading so a misread is visible.
+
+---
+
+## D021 — Use small in-repo UI components instead of a component library
+
+The UI uses a few components written in this repository (`frontend/components/ui`: Button, Field, FilterSelect, Metric, Page, RouteTransition, States, Icon), styled with Tailwind CSS, instead of a third-party component library.
+
+**Why**
+
+The product needs only a handful of building blocks: buttons, form fields, select filters, metric tiles, page layout, and loading, empty, and error states. Writing these directly keeps the dependency list short, keeps full control over states and accessibility, and avoids overriding a library's design system for a small number of screens. Tailwind gives consistent spacing, colour, and type without extra runtime code.
+
+**Trade-off**
+
+Complex widgets such as date pickers, data grids, or comboboxes would take more effort to build well. If the product needs them, a headless library such as Radix UI or shadcn/ui can be added one component at a time without a rewrite.

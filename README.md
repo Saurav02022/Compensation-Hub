@@ -75,6 +75,7 @@ The browser interacts with the Next.js application; backend API calls stay serve
 | Area | Technology |
 | --- | --- |
 | Frontend | Next.js, React, TypeScript |
+| UI components | In-repo components with Tailwind CSS (see D021) |
 | Backend | Python 3.12, FastAPI, Pydantic |
 | Data access | SQLAlchemy 2, Psycopg |
 | Migrations | Alembic |
