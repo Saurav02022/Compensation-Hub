@@ -141,8 +141,6 @@ Do not add the following unless the project documents are intentionally updated 
 - microservices,
 - Kubernetes.
 
-Do not describe the repository, UI, code, commits, or documentation as an assignment, take-home exercise, coding challenge, or evaluator demo.
-
 Do not invent customers, production usage, business history, metrics, or operational claims.
 
 ## 4. Repository Structure
